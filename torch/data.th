@@ -1,0 +1,292 @@
+require 'image'
+require 'torchx'
+
+function getNegative(img,label,buffer,cropSize)
+    local idx=torch.nonzero(label)
+    idx=torch.sort(idx,1)
+    local bb={idx[1][1],idx[1][2],idx[idx:size()[1]][1],idx[idx:size()[1]][2]}
+    
+    -- get random value that can be starting point of crop
+    local max_val_r=img:size()[2]-cropSize;
+    local max_val_c=img:size()[3]-cropSize;
+
+    local bb_crop;
+    
+    while 1 do  
+        local start_r=torch.random(1,max_val_r);
+        local start_c=torch.random(1,max_val_c);
+        local end_r=start_r+cropSize
+        local end_c=start_c+cropSize
+        bb_crop=torch.Tensor({start_r,start_c,end_r,end_c});
+
+        -- check if middle of bb is middle of crop +-16
+        local mid_bb=getMidOfBox(bb);
+        local mid_crop=getMidOfBox(bb_crop);
+        local diff=torch.abs(mid_bb-mid_crop)
+        
+        --if it is, disgard and repeat
+        if diff[1]<buffer and diff[2]<buffer then 
+            ;
+        else
+            -- bb_crop=bb;
+            break;
+        end
+    end
+
+    local neg_im=image.crop(img, bb_crop[2], bb_crop[1], bb_crop[4],bb_crop[3])
+    return neg_im
+end
+
+function getMidOfBox(bb)
+    local mid_r=(bb[1]+bb[3])/2;
+    local mid_c=(bb[2]+bb[4])/2;
+    return torch.Tensor({mid_r,mid_c})
+end
+
+
+function readDataFile(file_path)
+    local file_lines = {};
+    for line in io.lines(file_path) do 
+        local start_idx, end_idx = string.find(line, ' ');
+        -- print(line);
+        -- print (start_idx)
+        local img_path=string.sub(line,1,start_idx-1);
+        local img_label=string.sub(line,end_idx+1,#line);
+        file_lines[#file_lines+1]={img_path,img_label};
+        if #file_lines==100 then
+            break;
+        end
+    end 
+    return file_lines
+end
+
+
+
+function dump()
+    label_file='/disk2/februaryExperiments/deep_proposals/big_masks_new/COCO_train2014_000000480023_0_mask.png';
+
+    img_file='/disk2/ms_coco/train2014/COCO_train2014_000000480023.jpg';
+    buffer=16;
+    cropSize=224;
+
+    img=image.load(img_file);
+    label=image.load(label_file);
+    label=label:select(1,1);
+    label:mul(255);
+
+    neg_example=getNegative(img,label,buffer,cropSize)
+
+    print(neg_example:size());
+    print (bb_crop);
+    print (idx);
+
+    out_file_im='/disk2/temp/TORCH_im.jpg';
+    out_file_crop='/disk2/temp/TORCH_crop.jpg'
+    image.save(out_file_im,img);
+    image.save(out_file_crop,neg_example);
+end
+
+function unique(input)
+  local b = {}
+  -- print (input:numel())
+  local input=torch.reshape(input, input:numel())
+  -- print (input:size());
+  for i=1,input:numel() do
+        -- print (i)
+        -- print (input[i])
+        if input[i]==-1 then
+            b[100]=true;
+        else
+            b[input[i]] = true
+        end
+   end
+  local out = {}
+  for i in pairs(b) do
+      table.insert(out,i)
+   end
+  return out
+end
+
+function jitterImage(img,mask,jitter_size,crop_size)
+    local x=math.random(jitter_size);
+    local y=math.random(jitter_size);
+    print ('x y '..x..' '..y);
+    local x_e=x+crop_size[1];
+    local y_e=y+crop_size[2];
+    local img=image.crop(img,x,y,x_e,y_e);
+    local mask=image.crop(mask,x,y,x_e,y_e);
+    return img,mask
+end
+
+function scaleImage(img,mask,scale_range,crop_size)
+    local new_scale=math.random(scale_range[1],scale_range[2]);
+    -- print ('new_scale '..new_scale);
+    local img=image.scale(img,new_scale);
+    -- print (img:size())
+    local mask=image.scale(mask,new_scale,'simple');
+    -- print (mask:size())
+    local start_x=math.floor((img:size()[2]-crop_size[1])/2);
+    -- print (start_x)
+    local start_y=math.floor((img:size()[3]-crop_size[2])/2);
+    -- print (start_y);
+    local img=image.crop(img,start_x,start_y,start_x+crop_size[1],start_y+crop_size[2]);
+    -- print (img:size())
+    local mask=image.crop(mask,start_x,start_y,start_x+crop_size[1],start_y+crop_size[2]);
+    -- print (mask:size());
+    return img,mask
+end
+
+function processImAndMaskPositive(img,mask,params)
+    -- local img=img;
+    -- local mask=mask;
+
+    if img:size()[1]==1 then
+        img= torch.cat(img,img,1):cat(img,1)
+    end
+
+    -- bring img to 0 255 range
+    img:mul(255);
+
+    -- bring mask to -1 +1 range
+    mask:mul(255);
+    mask:mul(2);
+    mask:csub(1);
+
+    -- jitter, scale or flip 
+    local rand=3;
+    print('rand picked '..rand);
+
+    -- math.random(3);
+    if rand==1 then
+        img,mask=jitterImage(img,mask,params.jitter_size,params.crop_size);
+    elseif rand==2 then
+        img,mask=scaleImage(img,mask,params.scale_range,params.crop_size);
+    else
+        img,mask=jitterImage(img,mask,params.jitter_size,params.crop_size);
+        image.hflip(img,img);
+        image.hflip(mask,mask);
+    end
+
+    print (torch.max(img))
+    print (torch.min(img))
+    -- subtract the mean
+    for i=1,img:size()[1] do
+        img[i]:csub(params.mean[i])
+    end
+    -- add to training set
+
+    print (torch.max(img))
+    print (torch.min(img))
+    print (unique(mask));
+    print (img:size())
+    print (mask:size())
+    return img,mask
+    -- ,mask;
+
+end
+
+
+function addTrainingDataPositiveSeg(training_set,num_im,list_files,start_idx,params)
+    
+    local img_path=list_files[start_idx][1];
+    local mask_path=list_files[start_idx][2];
+    local img=image.load(img_path);
+    if img:size()[1]==1 then
+        img= torch.cat(img,img,1):cat(img,1)
+    end
+    local mask=image.load(mask_path);
+    print (img:size())
+    print (mask:size())
+    -- print (params);
+    print ('before');
+    img,mask=processImAndMaskPositive(img,mask,params)
+    print (img:size());
+    -- print (mask:size());
+    print (img:size());
+    print (torch.max(img))
+    print (torch.min(img))
+    
+    -- print (mask1:size());
+    -- return img,mask
+    -- -- bring img to 0 255 range
+    -- img:mul(255);
+
+    -- -- bring mask to -1 +1 range
+    -- mask:mul(255);
+    -- mask:mul(2);
+    -- mask:csub(1);
+
+    -- -- jitter, scale or flip 
+    -- local rand=3
+    -- -- math.random(3);
+    -- if rand==1 then
+    --     img,mask=jitterImage(img,mask,jitter_size,crop_size);
+    -- elseif rand==2 then
+    --     img,mask=scaleImage(img,mask,scale_range,crop_size);
+    -- else
+    --     img,mask=jitterImage(img,mask,jitter_size,crop_size);
+    --     image.hflip(img,img);
+    --     image.hflip(mask,mask);
+    -- end
+
+    -- print (torch.max(img))
+    -- print (torch.min(img))
+    -- -- subtract the mean
+    -- for i=1,img:size()[1] do
+    --     img[i]:csub(mean[i])
+    -- end
+    -- -- add to training set
+
+    -- print (torch.max(img))
+    -- print (torch.min(img))
+    -- print (unique(mask));
+
+end
+
+file_path='/disk2/februaryExperiments/deep_proposals/positive_data.txt';
+batch_size=52;
+start_idx_train=1;
+params={jitter_size=16,
+    crop_size={224,224},
+    scale_range={285,224},
+    mean={122,117,104}};
+
+lines=readDataFile(file_path)
+start_idx=1;
+addTrainingDataPositiveSeg(training_set,num_im,lines,start_idx,params)
+-- local img_path=lines[start_idx][1];
+-- local mask_path=lines[start_idx][2];
+-- local img=image.load(img_path);
+-- local mask=image.load(mask_path);
+-- processImAndMask(img,mask,params);
+
+
+
+-- addTrainingDataPositiveSeg(training_set,num_im,lines,1,mean,jitter_size,crop_size,scale_range)
+
+
+-- idx_rand=torch.randperm(#lines);
+-- print (idx_rand)
+
+-- start_idx_train=1;
+-- for iter=1,5 do
+--     print ('iter '..iter);
+--     for i=start_idx_train,start_idx_train+batch_size-1 do
+--         if i>(idx_rand:size()[1]) then
+--             i=i - (idx_rand:size()[1])
+--         end
+--         print (i)
+--         start_idx_train=i+1;
+--     end
+--     -- print ('i'..i);
+--     print ('start_idx_train'..start_idx_train);
+--     -- start_idx_train=i;
+-- end
+
+
+-- print (lines);
+-- print (#lines);
+-- print (lines[1]);
+-- print (lines[1][1]);
+-- print (lines[1][2]);
+
