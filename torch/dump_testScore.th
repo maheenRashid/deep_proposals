@@ -1,0 +1,100 @@
+
+
+prototxt = '/disk2/januaryExperiments/vgg_16/VGG_ILSVRC_16_layers_deploy.prototxt';
+model = '/disk2/januaryExperiments/vgg_16/VGG_ILSVRC_16_layers.caffemodel';
+torch_file='/disk2/januaryExperiments/vgg_16/vgg16_onlyConv.dat';
+-- deep_prop_file='/disk2/februaryExperiments/deep_proposals/model_no_interleaving.dat';
+deep_prop_file='/disk2/februaryExperiments/deep_proposals/model_no_score.dat';
+out_file_net='/disk2/februaryExperiments/deep_proposals/model_no_score_trained.dat';
+out_file_pred='/disk2/februaryExperiments/deep_proposals/model_no_score_test.npy';
+out_file_gt='/disk2/februaryExperiments/deep_proposals/model_no_score_gt.npy';
+out_file_gt_data='/disk2/februaryExperiments/deep_proposals/model_no_score_gt_data.npy';
+
+-- net= makeMyNetworkJustSeg(torch_file)
+net=makeMyNetworkJustScore(torch_file)
+print(net);
+-- torch.save(out_file,net);
+
+
+
+batch_size=32;
+learningRate=0.0001;
+momentum=0.9
+weight_decay=0.00005;
+iterations=300;
+
+
+
+
+net = torch.load(out_file_net);
+net = net:cuda();
+-- print (net);
+
+td=data();
+td.batch_size=100;
+td:getTrainingDataToy();
+td.training_set.data=td.training_set.data:cuda();
+
+prediction=net:forward(td.training_set.data);
+npy4th.savenpy(out_file_pred, prediction)
+npy4th.savenpy(out_file_gt, td.training_set.label)
+npy4th.savenpy(out_file_gt_data, td.training_set.data)
+-- print(prediction:size());
+-- for i=1,prediction:size(1) do
+--     im=prediction[i];
+--     print(torch.min(torch.min(im))..' '..torch.max(torch.max(im)));
+--     out_file=out_dir..'/'..i..'.png';
+--     image.save(out_file,im);
+-- end
+
+
+-- -- td:getTrainingDataToy();
+
+
+-- -- print(td.training_set)
+
+-- for i=1,iterations do
+-- 	print ('iter,'..i);
+-- 	td:getTrainingDataToy();	
+--     -- print(td.training_set.data:type())
+-- 	td.training_set.data = td.training_set.data:cuda();
+-- 	td.training_set.label = td.training_set.label:cuda();
+
+-- 	prediction = net:forward(td.training_set.data)
+-- 	print(prediction:size());
+-- 	-- criterion:forward(prediction, output)
+
+-- 	-- train over this example in 3 steps
+
+-- 	-- (1) zero the accumulation of the gradients
+-- 	net:zeroGradParameters()
+
+-- 	-- (2) accumulate gradients
+-- 	dloss_seg = getLossSegD(prediction, td.training_set.label)
+--     loss = getLossSeg(prediction,td.training_set.label);
+-- 	print('loss '..loss);
+-- 	-- loss_total=torch.sum(dloss_seg);
+-- 	-- print(loss_total);
+-- 	net:backward(td.training_set.data, dloss_seg)
+
+-- 	-- (3) update parameters with learning rate
+-- 	net:updateParameters(learningRate)
+-- end
+
+-- torch.save(out_file_net,net);
+
+-- bottom_layer_num=31;
+-- cutorch.setDevice(1);
+
+
+-- td=data();
+-- td:getTrainingDataToy();
+-- print(td.training_set)
+
+
+-- trainer = nn.StochasticGradient(net, criterion)
+-- trainer.learningRate = 0.001
+-- trainer.maxIteration = 5 -- just do 5 epochs of training.
+-- trainer:train(trainset)
+
+

@@ -250,7 +250,57 @@ def writeTrainingDataFiles(dir_content_file,pre_dir,img_dir,out_file_text,ignore
         lines_to_write.append(file_name+' '+file_curr);
     util.writeFile(out_file_text,lines_to_write);
 
+def script_saveBboxFiles(anno,out_dir,im_pre):
+    
+    bbox_dict={};
+
+    idx=0;
+    for idx in range(len(anno)):
+        if idx%100==0:
+            print idx;
+
+        if anno[idx]['iscrowd']==0:
+            im_id=anno[idx]['image_id'];
+            bbox=anno[idx]['bbox'];
+            
+            im_path=addLeadingZeros(im_id,os.path.join(out_dir,im_pre),'.npy');
+            if im_path in bbox_dict:
+                # print im_path,bbox_dict[im_path],
+                bbox_dict[im_path].append(bbox);
+                # print bbox_dict[im_path];
+            else:
+                bbox_dict[im_path]=[bbox];
+
+    for im_path in bbox_dict.keys():
+        bbox_curr=bbox_dict[im_path];
+        bbox_curr=np.array(bbox_curr);
+        # print im_path
+        np.save(im_path,bbox_curr);
+
+
 def main():
+    path_to_im='/disk2/ms_coco/train2014'
+    path_to_anno='/disk2/ms_coco/annotations';
+    out_dir='/disk2/marchExperiments/deep_proposals/negatives';
+    path_to_im='/disk2/ms_coco/train2014';
+    im_pre='COCO_train2014_';
+
+    out_file='/disk2/marchExperiments/deep_proposals/negatives.txt';
+    lines=[];
+    for file_curr in os.listdir(out_dir):
+        if file_curr.endswith('.npy'):
+            file_name=file_curr[:file_curr.rindex('.')];
+            file_im=os.path.join(path_to_im,file_name+'.jpg');
+            file_npy=os.path.join(out_dir,file_curr);
+            lines.append(file_im+' '+file_npy);
+
+    print len(lines);
+    # print lines[:100]
+    util.writeFile(out_file,lines);
+
+
+
+    return
     path_to_im='/disk2/ms_coco/train2014';
     im_pre='COCO_train2014_';
 

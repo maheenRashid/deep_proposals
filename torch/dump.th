@@ -1,0 +1,51 @@
+
+-- script_removeLayersFromCaffe(prototxt,model,torch_file,bottom_layer_num);
+-- net = makeMyNetwork(torch_file);
+-- torch.save(deep_prop_file,net);
+
+net = torch.load(deep_prop_file);
+net = net:cuda();
+-- print (net);
+
+-- trainer = nn.StochasticGradient(net, criterion)
+-- trainer.learningRate = 0.001
+-- trainer.maxIteration = 5 
+
+-- x_seg=torch.Tensor({{1,2,3,4}, {5,6,7,8},{9,10,11,12},{13,14,15,16}})
+-- gt_mask=torch.Tensor({{1,1,1,1},{1,0,0,1},{1,0,0,1},{1,1,1,1}});
+gt_mask=torch.Tensor(1,224,224):zero();
+
+gt_mask[1][10][10]=1;
+
+gt_label=torch.Tensor({1})
+-- torch.Tensor({1});
+-- x_score=0.5
+-- torch.Tensor({0.5});
+print(gt_label)
+-- print(x_score);
+
+-- loss = getLoss(x_score,x_seg,gt_label,gt_mask);
+-- print(loss);
+
+im = image.lena();
+im = image.scale(im,224,224,'bilinear');
+out = net:forward(im:cuda());
+-- out = net:forward(im);
+print (out[2]:size())
+print (out[1]:size())
+print(out[1]);
+print (out)
+
+x_score=out[1];x_seg=out[2];
+print('x_score '..tostring(x_score[1]));
+print('x_seg '..tostring(x_seg[1][10][10]));
+
+loss = getLoss(x_score:double(),x_seg:double(),gt_label,gt_mask);
+print(loss);
+
+loss_score_d=getLossScoreD(x_score:double(),gt_label)
+print('loss_score_d = '..tostring(loss_score_d))
+loss_seg_d=getLossSegD(x_seg:double(),gt_mask);
+print('loss_seg_d:size() = '..tostring(loss_seg_d:size()))
+print('loss_seg_d[1][10][10] = '..loss_seg_d[1][10][10]);
+

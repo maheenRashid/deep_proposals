@@ -1,292 +1,313 @@
 require 'image'
 require 'torchx'
+npy4th = require 'npy4th'
+-- local class = require 'class'
+do
+    local data = torch.class('data')
 
-function getNegative(img,label,buffer,cropSize)
-    local idx=torch.nonzero(label)
-    idx=torch.sort(idx,1)
-    local bb={idx[1][1],idx[1][2],idx[idx:size()[1]][1],idx[idx:size()[1]][2]}
-    
-    -- get random value that can be starting point of crop
-    local max_val_r=img:size()[2]-cropSize;
-    local max_val_c=img:size()[3]-cropSize;
+    function data:__init(args)
+        -- print ('initing');
+        self.file_path='/disk2/februaryExperiments/deep_proposals/positive_data.txt';
+        self.batch_size=32;
+        self.start_idx_train=1;
+        self.params={jitter_size=16,
+            crop_size={224,224},
+            scale_range={285,224},
+            mean={122,117,104}};
+        self.training_set={};
+        self.lines=self:readDataFile(self.file_path)
+        -- print ('initing');
+        -- return self;
+    end
 
-    local bb_crop;
-    
-    while 1 do  
-        local start_r=torch.random(1,max_val_r);
-        local start_c=torch.random(1,max_val_c);
-        local end_r=start_r+cropSize
-        local end_c=start_c+cropSize
-        bb_crop=torch.Tensor({start_r,start_c,end_r,end_c});
+    function data:getTrainingDataToy()
+        self.training_set.data=torch.zeros(self.batch_size,3,self.params.crop_size[1],self.params.crop_size[2]);
+        self.training_set.label=torch.ones(self.batch_size,1,self.params.crop_size[1],self.params.crop_size[2]):mul(-1);
+        self.start_idx=1;
+        self:addTrainingDataPositiveSeg(self.training_set,self.batch_size,self.lines,self.start_idx,self.params)
+    end
 
-        -- check if middle of bb is middle of crop +-16
-        local mid_bb=getMidOfBox(bb);
-        local mid_crop=getMidOfBox(bb_crop);
-        local diff=torch.abs(mid_bb-mid_crop)
+    function data:getNegative(img,label,buffer,cropSize)
+        local idx=torch.nonzero(label)
+        idx=torch.sort(idx,1)
+        local bb={idx[1][1],idx[1][2],idx[idx:size()[1]][1],idx[idx:size()[1]][2]}
         
-        --if it is, disgard and repeat
-        if diff[1]<buffer and diff[2]<buffer then 
-            ;
+        -- get random value that can be starting point of crop
+        local max_val_r=img:size()[2]-cropSize;
+        local max_val_c=img:size()[3]-cropSize;
+
+        local bb_crop;
+        
+        while 1 do  
+            local start_r=torch.random(1,max_val_r);
+            local start_c=torch.random(1,max_val_c);
+            local end_r=start_r+cropSize
+            local end_c=start_c+cropSize
+            bb_crop=torch.Tensor({start_r,start_c,end_r,end_c});
+
+            -- check if middle of bb is middle of crop +-16
+            local mid_bb=getMidOfBox(bb);
+            local mid_crop=getMidOfBox(bb_crop);
+            local diff=torch.abs(mid_bb-mid_crop)
+            
+            --if it is, disgard and repeat
+            if diff[1]<buffer and diff[2]<buffer then 
+                ;
+            else
+                -- bb_crop=bb;
+                break;
+            end
+        end
+
+        local neg_im=image.crop(img, bb_crop[2], bb_crop[1], bb_crop[4],bb_crop[3])
+        return neg_im
+    end
+
+    function data:getMidOfBox(bb)
+        local mid_r=(bb[1]+bb[3])/2;
+        local mid_c=(bb[2]+bb[4])/2;
+        return torch.Tensor({mid_r,mid_c})
+    end
+
+    function data:readDataFile(file_path)
+        -- print(file_path);
+        local file_lines = {};
+        for line in io.lines(file_path) do 
+            -- print(file_path);
+            local start_idx, end_idx = string.find(line, ' ');
+            -- print(line);
+            -- print (start_idx)
+            local img_path=string.sub(line,1,start_idx-1);
+            local img_label=string.sub(line,end_idx+1,#line);
+            file_lines[#file_lines+1]={img_path,img_label};
+            if #file_lines==100 then
+                break;
+            end
+            -- print(file_path);
+        end 
+        -- print(#file_lines);
+        return file_lines
+    end
+
+    function data:unique(input)
+      local b = {}
+      -- print (input:numel())
+      local input=torch.reshape(input, input:numel())
+      -- print (input:size());
+      for i=1,input:numel() do
+            -- print (i)
+            -- print (input[i])
+            if input[i]==-1 then
+                b[100]=true;
+            else
+                b[input[i]] = true
+            end
+       end
+      local out = {}
+      for i in pairs(b) do
+          table.insert(out,i)
+       end
+      return out
+    end
+
+    function data:jitterImage(img,mask,jitter_size,crop_size)
+        local x=math.random(jitter_size);
+        local y=math.random(jitter_size);
+        -- print ('x y '..x..' '..y);
+        local x_e=x+crop_size[1];
+        local y_e=y+crop_size[2];
+        local img=image.crop(img,x,y,x_e,y_e);
+        local mask=image.crop(mask,x,y,x_e,y_e);
+        return img,mask
+    end
+
+    function data:scaleImage(img,mask,scale_range,crop_size)
+        local new_scale=math.random(scale_range[1],scale_range[2]);
+        -- print ('new_scale '..new_scale);
+        local img=image.scale(img,new_scale);
+        -- print (img:size())
+        local mask=image.scale(mask,new_scale,'simple');
+        -- print (mask:size())
+        local start_x=math.floor((img:size()[2]-crop_size[1])/2);
+        -- print (start_x)
+        local start_y=math.floor((img:size()[3]-crop_size[2])/2);
+        -- print (start_y);
+        local img=image.crop(img,start_x,start_y,start_x+crop_size[1],start_y+crop_size[2]);
+        -- print (img:size())
+        local mask=image.crop(mask,start_x,start_y,start_x+crop_size[1],start_y+crop_size[2]);
+        -- print (mask:size());
+        return img,mask
+    end
+
+    function data:processImAndMaskPositive(img,mask,params)
+        -- local img=img;
+        -- local mask=mask;
+
+        if img:size()[1]==1 then
+            img= torch.cat(img,img,1):cat(img,1)
+        end
+
+        -- bring img to 0 255 range
+        img:mul(255);
+
+        -- bring mask to -1 +1 range
+        mask:mul(255);
+        mask:mul(2);
+        mask:csub(1);
+
+        -- jitter, scale or flip 
+        local rand=3;
+        -- print('rand picked '..rand);
+
+        -- local rand=math.random(3);
+        if rand==1 then
+            img,mask=self:jitterImage(img,mask,params.jitter_size,params.crop_size);
+        elseif rand==2 then
+            img,mask=self:scaleImage(img,mask,params.scale_range,params.crop_size);
         else
-            -- bb_crop=bb;
-            break;
+            img,mask=self:jitterImage(img,mask,params.jitter_size,params.crop_size);
+            image.hflip(img,img);
+            image.hflip(mask,mask);
         end
-    end
 
-    local neg_im=image.crop(img, bb_crop[2], bb_crop[1], bb_crop[4],bb_crop[3])
-    return neg_im
-end
-
-function getMidOfBox(bb)
-    local mid_r=(bb[1]+bb[3])/2;
-    local mid_c=(bb[2]+bb[4])/2;
-    return torch.Tensor({mid_r,mid_c})
-end
-
-
-function readDataFile(file_path)
-    local file_lines = {};
-    for line in io.lines(file_path) do 
-        local start_idx, end_idx = string.find(line, ' ');
-        -- print(line);
-        -- print (start_idx)
-        local img_path=string.sub(line,1,start_idx-1);
-        local img_label=string.sub(line,end_idx+1,#line);
-        file_lines[#file_lines+1]={img_path,img_label};
-        if #file_lines==100 then
-            break;
+        -- print (torch.max(img))
+        -- print (torch.min(img))
+        -- subtract the mean
+        for i=1,img:size()[1] do
+            img[i]:csub(params.mean[i])
         end
-    end 
-    return file_lines
-end
+        -- add to training set
 
+        -- print (torch.max(img))
+        -- print (torch.min(img))
+        -- print (unique(mask));
+        -- print (img:size())
+        -- print (mask:size())
+        return img,mask
+        -- ,mask;
 
+    end
 
-function dump()
-    label_file='/disk2/februaryExperiments/deep_proposals/big_masks_new/COCO_train2014_000000480023_0_mask.png';
-
-    img_file='/disk2/ms_coco/train2014/COCO_train2014_000000480023.jpg';
-    buffer=16;
-    cropSize=224;
-
-    img=image.load(img_file);
-    label=image.load(label_file);
-    label=label:select(1,1);
-    label:mul(255);
-
-    neg_example=getNegative(img,label,buffer,cropSize)
-
-    print(neg_example:size());
-    print (bb_crop);
-    print (idx);
-
-    out_file_im='/disk2/temp/TORCH_im.jpg';
-    out_file_crop='/disk2/temp/TORCH_crop.jpg'
-    image.save(out_file_im,img);
-    image.save(out_file_crop,neg_example);
-end
-
-function unique(input)
-  local b = {}
-  -- print (input:numel())
-  local input=torch.reshape(input, input:numel())
-  -- print (input:size());
-  for i=1,input:numel() do
-        -- print (i)
-        -- print (input[i])
-        if input[i]==-1 then
-            b[100]=true;
-        else
-            b[input[i]] = true
+    function data:addTrainingDataPositiveSeg(training_set,num_im,list_files,start_idx,params,scoreFlag)
+        local list_idx=start_idx;
+        local list_size=#list_files;
+        -- local count=0;
+        for curr_idx=1,num_im do
+            -- count=count+1;
+            -- add mod length here to make the batch size rotate
+            -- print ('list_idx '..list_idx);
+            local img_path=list_files[list_idx][1];
+            local mask_path=list_files[list_idx][2];
+            local img=image.load(img_path);
+            if img:size()[1]==1 then
+                img= torch.cat(img,img,1):cat(img,1)
+            end
+            local mask=image.load(mask_path);
+            
+            img,mask=self:processImAndMaskPositive(img,mask,params)
+            training_set.data[curr_idx]=img;
+            if scoreFlag then
+                training_set.label[curr_idx]=1;
+            else
+                training_set.label[curr_idx]=mask;
+            end
+            list_idx=(list_idx+1)%list_size;
         end
-   end
-  local out = {}
-  for i in pairs(b) do
-      table.insert(out,i)
-   end
-  return out
-end
-
-function jitterImage(img,mask,jitter_size,crop_size)
-    local x=math.random(jitter_size);
-    local y=math.random(jitter_size);
-    print ('x y '..x..' '..y);
-    local x_e=x+crop_size[1];
-    local y_e=y+crop_size[2];
-    local img=image.crop(img,x,y,x_e,y_e);
-    local mask=image.crop(mask,x,y,x_e,y_e);
-    return img,mask
-end
-
-function scaleImage(img,mask,scale_range,crop_size)
-    local new_scale=math.random(scale_range[1],scale_range[2]);
-    -- print ('new_scale '..new_scale);
-    local img=image.scale(img,new_scale);
-    -- print (img:size())
-    local mask=image.scale(mask,new_scale,'simple');
-    -- print (mask:size())
-    local start_x=math.floor((img:size()[2]-crop_size[1])/2);
-    -- print (start_x)
-    local start_y=math.floor((img:size()[3]-crop_size[2])/2);
-    -- print (start_y);
-    local img=image.crop(img,start_x,start_y,start_x+crop_size[1],start_y+crop_size[2]);
-    -- print (img:size())
-    local mask=image.crop(mask,start_x,start_y,start_x+crop_size[1],start_y+crop_size[2]);
-    -- print (mask:size());
-    return img,mask
-end
-
-function processImAndMaskPositive(img,mask,params)
-    -- local img=img;
-    -- local mask=mask;
-
-    if img:size()[1]==1 then
-        img= torch.cat(img,img,1):cat(img,1)
+        -- print( count);
+        return list_idx;
     end
-
-    -- bring img to 0 255 range
-    img:mul(255);
-
-    -- bring mask to -1 +1 range
-    mask:mul(255);
-    mask:mul(2);
-    mask:csub(1);
-
-    -- jitter, scale or flip 
-    local rand=3;
-    print('rand picked '..rand);
-
-    -- math.random(3);
-    if rand==1 then
-        img,mask=jitterImage(img,mask,params.jitter_size,params.crop_size);
-    elseif rand==2 then
-        img,mask=scaleImage(img,mask,params.scale_range,params.crop_size);
-    else
-        img,mask=jitterImage(img,mask,params.jitter_size,params.crop_size);
-        image.hflip(img,img);
-        image.hflip(mask,mask);
-    end
-
-    print (torch.max(img))
-    print (torch.min(img))
-    -- subtract the mean
-    for i=1,img:size()[1] do
-        img[i]:csub(params.mean[i])
-    end
-    -- add to training set
-
-    print (torch.max(img))
-    print (torch.min(img))
-    print (unique(mask));
-    print (img:size())
-    print (mask:size())
-    return img,mask
-    -- ,mask;
-
-end
-
-
-function addTrainingDataPositiveSeg(training_set,num_im,list_files,start_idx,params)
     
-    local img_path=list_files[start_idx][1];
-    local mask_path=list_files[start_idx][2];
-    local img=image.load(img_path);
-    if img:size()[1]==1 then
-        img= torch.cat(img,img,1):cat(img,1)
+    function data:isValidNegative(crop_coord,bbox,tolerance)
+        local start_x=crop_coord[1];
+        local start_y=crop_coord[2];
+        local end_x=crop_coord[3];
+        local end_y=crop_coord[4];
+        local isValid=true;
+        for box_no=1,bbox:size()[1] do
+            local x_min_b=bbox[box_no][1];
+            local y_min_b=bbox[box_no][2];
+            local x_max_b=x_min_b+bbox[box_no][3];
+            local y_max_b=y_min_b+bbox[box_no][4];
+            local x_dim_b=bbox[box_no][3];
+            local y_dim_b=bbox[box_no][4];
+            local max_dim=(x_dim_b>y_dim_b) and x_dim_b or y_dim_b;
+            -- is it entirely contained in the crop?
+            if x_min_b>=start_x and y_min_b>=start_y and x_max_b<=end_x and y_max_b<=end_y then
+                -- is it not too big or not too small
+                if max_dim<128*2 and max_dim>128/2 then
+                    -- is it offset enough?
+                    if x_min_b-start_x<tolerance or y_min_b-start_y<tolerance then
+                        isValid=false;
+                        break;
+                    end
+                end
+            end
+        end
+        return isValid;
     end
-    local mask=image.load(mask_path);
-    print (img:size())
-    print (mask:size())
-    -- print (params);
-    print ('before');
-    img,mask=processImAndMaskPositive(img,mask,params)
-    print (img:size());
-    -- print (mask:size());
-    print (img:size());
-    print (torch.max(img))
-    print (torch.min(img))
-    
-    -- print (mask1:size());
-    -- return img,mask
-    -- -- bring img to 0 255 range
-    -- img:mul(255);
 
-    -- -- bring mask to -1 +1 range
-    -- mask:mul(255);
-    -- mask:mul(2);
-    -- mask:csub(1);
+    function data:addTrainingDataNegativeScore(training_set,num_im,list_files,start_idx,params)
+        local list_idx=start_idx;
+        local list_size=#list_files;
+        for curr_idx=1,num_im do
+            local img_path=list_files[list_idx][1];
+            local npy_path=list_files[list_idx][2];
+            local img=image.load(img_path);
+            if img:size()[1]==1 then
+                img= torch.cat(img,img,1):cat(img,1)
+            end
 
-    -- -- jitter, scale or flip 
-    -- local rand=3
-    -- -- math.random(3);
-    -- if rand==1 then
-    --     img,mask=jitterImage(img,mask,jitter_size,crop_size);
-    -- elseif rand==2 then
-    --     img,mask=scaleImage(img,mask,scale_range,crop_size);
-    -- else
-    --     img,mask=jitterImage(img,mask,jitter_size,crop_size);
-    --     image.hflip(img,img);
-    --     image.hflip(mask,mask);
-    -- end
-
-    -- print (torch.max(img))
-    -- print (torch.min(img))
-    -- -- subtract the mean
-    -- for i=1,img:size()[1] do
-    --     img[i]:csub(mean[i])
-    -- end
-    -- -- add to training set
-
-    -- print (torch.max(img))
-    -- print (torch.min(img))
-    -- print (unique(mask));
+            for i=1,img:size()[1] do
+                img[i]:csub(params.mean[i])
+            end
+            local bbox=npy4th.loadnpy(npy_path)
+            bbox:floor();
+            
+            local x_max=img:size()[3]-params.crop_size[2];
+            local y_max=img:size()[2]-params.crop_size[1];
+            local start_x;
+            local start_y;
+            local crop_box={};
+            while 1 do
+                start_x=torch.random(0,x_max-1);
+                start_y=torch.random(0,y_max-1);
+                local end_x=start_x+params.crop_size[2];
+                local end_y=start_y+params.crop_size[1];
+                crop_box={start_x,start_y,end_x,end_y};
+                if self:isValidNegative(crop_box,bbox,params.tolerance) then
+                    break;
+                end
+            end
+            training_set.data[curr_idx]=image.crop(img,crop_box[1],crop_box[2],crop_box[3],crop_box[4]);
+            training_set.label[curr_idx]=-1;
+        end  
+    end  
 
 end
 
-file_path='/disk2/februaryExperiments/deep_proposals/positive_data.txt';
-batch_size=52;
-start_idx_train=1;
-params={jitter_size=16,
-    crop_size={224,224},
-    scale_range={285,224},
-    mean={122,117,104}};
-
-lines=readDataFile(file_path)
-start_idx=1;
-addTrainingDataPositiveSeg(training_set,num_im,lines,start_idx,params)
--- local img_path=lines[start_idx][1];
--- local mask_path=lines[start_idx][2];
--- local img=image.load(img_path);
--- local mask=image.load(mask_path);
--- processImAndMask(img,mask,params);
+file_path_neg='/disk2/marchExperiments/deep_proposals/negatives.txt';
+crop_size={224,224};
 
 
 
--- addTrainingDataPositiveSeg(training_set,num_im,lines,1,mean,jitter_size,crop_size,scale_range)
-
-
--- idx_rand=torch.randperm(#lines);
--- print (idx_rand)
-
--- start_idx_train=1;
--- for iter=1,5 do
---     print ('iter '..iter);
---     for i=start_idx_train,start_idx_train+batch_size-1 do
---         if i>(idx_rand:size()[1]) then
---             i=i - (idx_rand:size()[1])
---         end
---         print (i)
---         start_idx_train=i+1;
---     end
---     -- print ('i'..i);
---     print ('start_idx_train'..start_idx_train);
---     -- start_idx_train=i;
--- end
-
-
--- print (lines);
+data_obj=data();
+lines=data_obj:readDataFile(file_path_neg);
+list_idx=1;
+im_path=lines[list_idx][1];
+npy_path=lines[list_idx][2];
+bbox=npy4th.loadnpy(npy_path)
+bbox=torch.Tensor(bbox);
+-- print(bbox);
 -- print (#lines);
--- print (lines[1]);
--- print (lines[1][1]);
--- print (lines[1][2]);
+training_set={};
+batch_size=10;
+data_obj.params.tolerance=16+32;
+training_set.data=torch.zeros(batch_size,3,data_obj.params.crop_size[1],data_obj.params.crop_size[2]);
+training_set.label=torch.zeros(batch_size);
+
+-- self.training_set={};
+-- self.training_set.data=torch.zeros(self.batch_size,3,self.params.crop_size[1],self.params.crop_size[2]);
+-- self.training_set.label=torch.ones(self.batch_size,1,self.params.crop_size[1],self.params.crop_size[2]):mul(-1);
+
+data:addTrainingDataNegativeScore(training_set,batch_size,lines,1,data_obj.params);
 

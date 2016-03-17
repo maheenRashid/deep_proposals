@@ -3,6 +3,288 @@ require 'loadcaffe';
 require 'cutorch';
 require 'cunn';
 require 'image'
+npy4th = require 'npy4th'
+do
+    local data = torch.class('data')
+
+    function data:__init(args)
+        -- print ('initing');
+        self.file_path_positive='/disk2/februaryExperiments/deep_proposals/positive_data.txt';
+        self.file_path_negative='/disk2/marchExperiments/deep_proposals/negatives.txt';
+
+        self.batch_size_seg=32;
+        self.batch_size_positive_score=16;
+        self.batch_size_negative_score=16;
+
+
+        self.start_idx_train=1;
+        self.start_idx_positive_seg=1;
+        self.start_idx_positive_score=1;
+        self.start_idx_negative_score=1;
+
+        self.params={jitter_size=16,
+            crop_size={224,224},
+            scale_range={285,224},
+            mean={122,117,104},
+            tolerance=48};
+        self.training_set_seg={};
+        self.training_set_score={};
+        self.lines=self:readDataFile(self.file_path_positive)
+        self.lines_negative=self:readDataFile(self.file_path_negative);
+        
+        print (#self.lines);
+        print (#self.lines_negative);
+        -- return self;
+    end
+
+
+    function data:getTrainingDataToyScore()
+        local total_batch_size=self.batch_size_positive_score+self.batch_size_negative_score;
+
+        self.training_set_score.data=torch.zeros(total_batch_size,3,self.params.crop_size[1],self.params.crop_size[2]);
+        self.training_set_score.label=torch.zeros(total_batch_size,1);
+
+        self.start_idx_positive_score=self:addTrainingDataPositive(self.training_set_score,
+            self.batch_size_positive_score,
+            self.lines,self.start_idx_positive_score,self.params,false)
+        -- should shuffle neg data every time
+        self.start_idx_negative_score=self:addTrainingDataNegativeScore(self.training_set_score,
+            self.batch_size_negative_score,
+            self.lines_negative,self.start_idx_negative_score,self.params,self.batch_size_positive_score+1)
+    end
+
+    function data:getTrainingDataToy()
+        self.training_set.data=torch.zeros(self.batch_size,3,self.params.crop_size[1],self.params.crop_size[2]);
+        self.training_set.label=torch.zeros(self.batch_size,1,self.params.crop_size[1],
+        	self.params.crop_size[2]);
+
+        self.start_idx_train=self:addTrainingDataPositive(self.training_set,self.batch_size,
+        	self.lines,self.start_idx_train,self.params,true)
+    end
+
+    function data:readDataFile(file_path)
+        -- print(file_path);
+        local file_lines = {};
+        for line in io.lines(file_path) do 
+            -- print(file_path);
+            local start_idx, end_idx = string.find(line, ' ');
+            -- print(line);
+            -- print (start_idx)
+            local img_path=string.sub(line,1,start_idx-1);
+            local img_label=string.sub(line,end_idx+1,#line);
+            file_lines[#file_lines+1]={img_path,img_label};
+            if #file_lines==100 then
+                break;
+            end
+            -- print(file_path);
+        end 
+        -- print(#file_lines);
+        return file_lines
+    end
+
+    function data:unique(input)
+      local b = {}
+      -- print (input:numel())
+      local input=torch.reshape(input, input:numel())
+      -- print (input:size());
+      for i=1,input:numel() do
+            -- print (i)
+            -- print (input[i])
+            if input[i]==-1 then
+                b[100]=true;
+            else
+                b[input[i]] = true
+            end
+       end
+      local out = {}
+      for i in pairs(b) do
+          table.insert(out,i)
+       end
+      return out
+    end
+
+    function data:jitterImage(img,mask,jitter_size,crop_size)
+        local x=math.random(jitter_size-1);
+        local y=math.random(jitter_size-1);
+        -- print ('x y '..x..' '..y);
+        local x_e=x+crop_size[1];
+        local y_e=y+crop_size[2];
+        -- print (img:size())
+        -- print(x..' '..y..' '..x_e..' '..y_e)
+        local img=image.crop(img,x,y,x_e,y_e);
+        local mask=image.crop(mask,x,y,x_e,y_e);
+        return img,mask
+    end
+
+    function data:scaleImage(img,mask,scale_range,crop_size)
+        local new_scale=math.random(scale_range[1],scale_range[2]);
+        -- print ('new_scale '..new_scale);
+        local img=image.scale(img,new_scale);
+        -- print (img:size())
+        local mask=image.scale(mask,new_scale,'simple');
+        -- print (mask:size())
+        local start_x=math.floor((img:size()[2]-crop_size[1])/2);
+        -- print (start_x)
+        local start_y=math.floor((img:size()[3]-crop_size[2])/2);
+        -- print (start_y);
+        local img=image.crop(img,start_x,start_y,start_x+crop_size[1],start_y+crop_size[2]);
+        -- print (img:size())
+        local mask=image.crop(mask,start_x,start_y,start_x+crop_size[1],start_y+crop_size[2]);
+        -- print (mask:size());
+        return img,mask
+    end
+
+    function data:processImAndMaskPositive(img,mask,params)
+
+        if img:size()[1]==1 then
+            img= torch.cat(img,img,1):cat(img,1)
+        end
+
+        -- bring img to 0 255 range
+        img:mul(255);
+
+        -- bring mask to -1 +1 range
+        mask:mul(255);
+        mask:mul(2);
+        mask:csub(1);
+
+        -- jitter, scale or flip 
+
+        local rand=math.random(3);
+        if rand==1 then
+            img,mask=self:jitterImage(img,mask,params.jitter_size,params.crop_size);
+        elseif rand==2 then
+            img,mask=self:scaleImage(img,mask,params.scale_range,params.crop_size);
+        else
+            img,mask=self:jitterImage(img,mask,params.jitter_size,params.crop_size);
+            image.hflip(img,img);
+            image.hflip(mask,mask);
+        end
+
+        -- subtract the mean
+        for i=1,img:size()[1] do
+            img[i]:csub(params.mean[i])
+        end
+        -- return
+        return img,mask
+
+    end
+
+
+    function data:addTrainingDataPositive(training_set,num_im,list_files,start_idx,params,segFlag)
+        local list_idx=start_idx;
+        local list_size=#list_files;
+        -- local count=0;
+        print('list_idx_start '..list_idx);
+        for curr_idx=1,num_im do
+            -- count=count+1;
+            -- add mod length here to make the batch size rotate
+            -- print ('list_idx '..list_idx);
+            local img_path=list_files[list_idx][1];
+            local mask_path=list_files[list_idx][2];
+            local img=image.load(img_path);
+            if img:size()[1]==1 then
+                img= torch.cat(img,img,1):cat(img,1)
+            end
+            local mask=image.load(mask_path);
+            
+            img,mask=self:processImAndMaskPositive(img,mask,params)
+            training_set.data[curr_idx]=img;
+            if segFlag then
+                training_set.label[curr_idx]=mask;
+            else
+                training_set.label[curr_idx][1]=1;
+            end
+            list_idx=(list_idx%list_size)+1;
+        end
+        -- print( count);
+        print('list_idx_end '..list_idx);
+        return list_idx;
+    end
+
+    function data:isValidNegative(crop_coord,bbox,tolerance)
+        local start_x=crop_coord[1];
+        local start_y=crop_coord[2];
+        local end_x=crop_coord[3];
+        local end_y=crop_coord[4];
+        local isValid=true;
+        for box_no=1,bbox:size()[1] do
+            local x_min_b=bbox[box_no][1];
+            local y_min_b=bbox[box_no][2];
+            local x_max_b=x_min_b+bbox[box_no][3];
+            local y_max_b=y_min_b+bbox[box_no][4];
+            local x_dim_b=bbox[box_no][3];
+            local y_dim_b=bbox[box_no][4];
+            local max_dim=(x_dim_b>y_dim_b) and x_dim_b or y_dim_b;
+            -- is it entirely contained in the crop?
+            if x_min_b>=start_x and y_min_b>=start_y and x_max_b<=end_x and y_max_b<=end_y then
+                -- is it not too big or not too small
+                if max_dim<128*2 and max_dim>128/2 then
+                    -- is it offset enough?
+                    if x_min_b-start_x<tolerance or y_min_b-start_y<tolerance then
+                        isValid=false;
+                        break;
+                    end
+                end
+            end
+        end
+        return isValid;
+    end
+
+    function data:addTrainingDataNegativeScore(training_set,num_im,list_files,start_idx,params,training_data_idx)
+        local list_idx=start_idx;
+        local list_size=#list_files;
+        print('list_idx_start '..list_idx);
+        for curr_idx=training_data_idx,training_data_idx+num_im-1 do
+
+            local img_path=list_files[list_idx][1];
+            local npy_path=list_files[list_idx][2];
+            local img=image.load(img_path);
+
+            -- make sure image has 3 channels
+            if img:size()[1]==1 then
+                img= torch.cat(img,img,1):cat(img,1)
+            end
+            -- make sure image has range 255
+            img:mul(255);
+            -- subtract mean
+            for i=1,img:size()[1] do
+                img[i]:csub(params.mean[i])
+            end
+            -- load bbox and make in to int
+            local bbox=npy4th.loadnpy(npy_path)
+            bbox:floor();
+            
+            -- get max starting point of crop
+            local x_max=img:size()[3]-params.crop_size[2];
+            local y_max=img:size()[2]-params.crop_size[1];
+            -- create a valid crop box that does not violate any positive examples
+            local start_x;
+            local start_y;
+            local crop_box={};
+            while 1 do
+                start_x=torch.random(0,x_max-1);
+                start_y=torch.random(0,y_max-1);
+                local end_x=start_x+params.crop_size[2];
+                local end_y=start_y+params.crop_size[1];
+                crop_box={start_x,start_y,end_x,end_y};
+                -- check if crop is valid negative
+                if self:isValidNegative(crop_box,bbox,params.tolerance) then
+                    break;
+                end
+            end
+            -- add to training data
+            training_set.data[curr_idx]=image.crop(img,crop_box[1],crop_box[2],crop_box[3],crop_box[4]);
+            training_set.label[curr_idx][1]=-1;
+            list_idx=(list_idx%list_size)+1;
+        end
+        print('list_idx_end '..list_idx);
+        return list_idx;  
+    end  
+
+end
+
+
 local clock = os.clock
 
 function script_removeLayersFromCaffe(prototxt,model,out_file,bottom_layer_num)
@@ -18,6 +300,65 @@ function script_removeLayersFromCaffe(prototxt,model,out_file,bottom_layer_num)
 	-- end
 
 	torch.save(out_file,net);
+end
+
+function makeMyNetworkJustSeg(torch_file)
+	vgg=torch.load(torch_file);
+
+
+	-- score_branch=nn.Sequential();
+	-- -- add interleaving here
+	-- score_branch:add(nn.SpatialMaxPooling(2,2,2,2));
+	-- score_branch:add(nn.View(512*7*7));
+	-- score_branch:add(nn.Linear(512*7*7,512));
+	-- score_branch:add(nn.ReLU());
+	-- score_branch:add(nn.Dropout(0.5));
+	-- score_branch:add(nn.Linear(512,1024));
+	-- score_branch:add(nn.ReLU());
+	-- score_branch:add(nn.Dropout(0.5));
+	-- score_branch:add(nn.Linear(1024,1));
+	-- -- print(score_branch);
+
+	-- seg_branch=nn.Sequential();
+	vgg:add(nn.SpatialConvolution(512,512,1,1));
+	vgg:add(nn.View(512*14*14));
+	vgg:add(nn.Linear(512*14*14,512));
+	vgg:add(nn.Linear(512,56*56));
+	vgg:add(nn.View(1,56,56));
+	-- add bilinearupsampling here to get output of size 224*224 -done
+	vgg:add(nn.SpatialUpSamplingNearest(4));
+	-- print(seg_branch);
+
+	-- split_net=nn.ConcatTable();
+	-- split_net:add(score_branch);
+	-- split_net:add(seg_branch);
+	-- vgg:add(split_net);
+	-- print(vgg)
+
+	-- im=torch.rand(3,224,224);
+	-- out=vgg:forward(im);
+	-- print (vgg:get(31):get(2):get(1))
+	return vgg
+end
+
+function makeMyNetworkJustScore(torch_file)
+    local vgg=torch.load(torch_file);
+
+
+    -- score_branch=nn.Sequential();
+    -- -- add interleaving here
+    vgg:add(nn.SpatialMaxPooling(2,2,2,2));
+    vgg:add(nn.View(512*7*7));
+    vgg:add(nn.Linear(512*7*7,512));
+    vgg:add(nn.ReLU());
+    vgg:add(nn.Dropout(0.5));
+    vgg:add(nn.Linear(512,1024));
+    vgg:add(nn.ReLU());
+    vgg:add(nn.Dropout(0.5));
+    vgg:add(nn.Linear(1024,1));
+
+
+    return vgg
 end
 
 function makeMyNetwork(torch_file)
@@ -61,18 +402,18 @@ end
 
 function makeSimpleNet()
 	net = nn.Sequential()
-	net:add(nn.SpatialConvolution(1, 6, 5, 5)) -- 1 input image channel, 6 output channels, 5x5 convolution kernel
-	net:add(nn.Sigmoid())                       -- non-linearity 
-	net:add(nn.SpatialMaxPooling(2,2,2,2))     -- A max-pooling operation that looks at 2x2 windows and finds the max.
+	net:add(nn.SpatialConvolution(1, 6, 5, 5)) 
+	net:add(nn.Sigmoid())                       
+	net:add(nn.SpatialMaxPooling(2,2,2,2))     
 	net:add(nn.SpatialConvolution(6, 16, 5, 5))
-	net:add(nn.Sigmoid())                       -- non-linearity 
+	net:add(nn.Sigmoid())                       
 	net:add(nn.SpatialMaxPooling(2,2,2,2))
-	net:add(nn.View(16*5*5))                    -- reshapes from a 3D tensor of 16x5x5 into 1D tensor of 16*5*5
-	net:add(nn.Linear(16*5*5, 120))             -- fully connected layer (matrix multiplication between input and weights)
-	net:add(nn.Sigmoid())                       -- non-linearity 
+	net:add(nn.View(16*5*5))                    
+	net:add(nn.Linear(16*5*5, 120))             
+	net:add(nn.Sigmoid())                       
 	net:add(nn.Linear(120, 84))
-	net:add(nn.Sigmoid())                       -- non-linearity 
-	net:add(nn.Linear(84, 10))                   -- 10 is the number of outputs of the network (in this case, 10 digits)
+	net:add(nn.Sigmoid())                       
+	net:add(nn.Linear(84, 10))                   
 	net:add(nn.LogSoftMax()) 
 
 	return net
@@ -107,16 +448,29 @@ function testUpSamplingGPU()
 end
 
 function getLossSeg(x_seg,gt_mask)
-	loss=torch.mul(gt_mask,-1)
+	local loss=torch.mul(gt_mask,-1)
 	-- print(loss:size())
 	-- print(gt_mask:size())
 	loss:cmul(x_seg)
 	loss:exp();
 	loss:add(1);
-	loss:log()
+	loss:log();
+    loss:div(56*56);
 	loss=loss:sum()
 	return loss;
 end
+
+function getLossScore(x_score,gt_label)
+    local loss=torch.mul(gt_label,-1)
+    loss:cmul(x_score)
+    loss:exp();
+    loss:add(1);
+    loss:log();
+    loss:div(32);
+    loss=loss:sum()
+    return loss;
+end
+
 
 function getLoss(x_score,x_seg,gt_label,gt_mask)
 	if gt_label==-1 then
@@ -138,28 +492,30 @@ function getLoss(x_score,x_seg,gt_label,gt_mask)
 	return total_loss;
 end
 
+-- TO DO fix this loss for -1,1 labels rather than zero 1 labels -DONE
 function getLossSegD(x_seg,gt_mask)
-	dloss=torch.mul(x_seg,-1);
-	dloss:sigmoid();
-	dloss:mul(-1);
+	local dloss=torch.mul(gt_mask,-1);
+	dloss:cmul(x_seg);
+	dloss:exp();
+	local deno=torch.add(dloss,1);
 	dloss:cmul(gt_mask);
+	dloss:mul(-1);
+	dloss:cdiv(deno);
 	dloss:div(56*56);
 	return dloss;
 end
 
 function getLossScoreD(x_score,gt_label)
 	-- print (x_score)
-	dloss=torch.mul(x_score,-1);
-	-- print(dloss);
-	dloss:sigmoid();
-	-- a=
-	-- print(dloss);
-	-- print (xscore);
-
-	dloss:cmul(torch.mul(gt_label,-1.0));
-	dloss:div(32);
-	-- print (dloss);
-	return dloss;
+	local dloss=torch.mul(gt_label,-1);
+	dloss:cmul(x_score);
+    dloss:exp();
+    local deno=torch.add(dloss,1);
+    dloss:cmul(gt_label);
+    dloss:mul(-1);
+    dloss:cdiv(deno);
+    dloss:div(32);
+    return dloss;
 end
 
 
@@ -169,65 +525,90 @@ function sleep(n)  -- seconds
 end
 
 
+
+
 prototxt = '/disk2/januaryExperiments/vgg_16/VGG_ILSVRC_16_layers_deploy.prototxt';
 model = '/disk2/januaryExperiments/vgg_16/VGG_ILSVRC_16_layers.caffemodel';
 torch_file='/disk2/januaryExperiments/vgg_16/vgg16_onlyConv.dat';
-deep_prop_file='/disk2/februaryExperiments/deep_proposals/model_no_interleaving.dat';
-batch_size=32;
-learningRate=0.001;
-momentum=0.9
-weight_decay=0.00005;
+-- deep_prop_file='/disk2/februaryExperiments/deep_proposals/model_no_interleaving.dat';
+deep_prop_file='/disk2/februaryExperiments/deep_proposals/model_no_seg.dat';
+out_file_net='/disk2/februaryExperiments/deep_proposals/model_no_seg_trained.dat';
+out_file_pred='/disk2/februaryExperiments/deep_proposals/model_no_seg_test.npy';
+out_file_gt='/disk2/februaryExperiments/deep_proposals/model_no_seg_gt.npy';
+out_file_gt_data='/disk2/februaryExperiments/deep_proposals/model_no_seg_gt_data.npy';
+out_dir_images='/disk2/marchExperiments/deep_proposals/checkPosNegData';
+
+-- net=makeMyNetworkJustScore(torch_file)
+-- print(net);
+-- torch.save(out_file_net,net);
 
 
-bottom_layer_num=31;
-cutorch.setDevice(1);
--- script_removeLayersFromCaffe(prototxt,model,torch_file,bottom_layer_num);
--- net = makeMyNetwork(torch_file);
--- torch.save(deep_prop_file,net);
 
-net = torch.load(deep_prop_file);
+-- batch_size=32;
+learningRate=0.0001;
+-- momentum=0.9
+-- weight_decay=0.00005;
+iterations=300;
+
+-- td=data();
+-- td:getTrainingDataToyScore();    
+-- print (td.training_set_score.data:size())
+-- print (td.training_set_score.label:size())
+
+-- for idx=1,td.training_set_score.data:size(1) do
+--     im=td.training_set_score.data[idx];
+--     label=td.training_set_score.label[idx][1];
+
+--     -- add mean
+--     for i=1,im:size()[1] do
+--         im[i]:add(td.params.mean[i])
+--     end    
+--     im:div(255);
+--     -- make out_file_name
+--     if label==1 then
+--         out_file=out_dir_images..'/'..idx..'_pos.png';
+--     else
+--         out_file=out_dir_images..'/'..idx..'_neg.png';
+--     end
+--     image.save(out_file,im)
+--     min=torch.min(td.training_set_score.data[idx]);
+--     max=torch.max(td.training_set_score.data[idx]);
+--     label=td.training_set_score.label[idx]
+--     print (idx)
+--     print(min)
+--     print(max)
+--     print(label)
+-- end
+
+net = torch.load(out_file_net);
 net = net:cuda();
--- print (net);
+td=data();
 
--- trainer = nn.StochasticGradient(net, criterion)
--- trainer.learningRate = 0.001
--- trainer.maxIteration = 5 
+for i=1,iterations do
+ print ('iter,'..i);
+ td:getTrainingDataToyScore();    
+ td.training_set_score.data = td.training_set_score.data:cuda();
+ td.training_set_score.label = td.training_set_score.label:cuda();
 
--- x_seg=torch.Tensor({{1,2,3,4}, {5,6,7,8},{9,10,11,12},{13,14,15,16}})
--- gt_mask=torch.Tensor({{1,1,1,1},{1,0,0,1},{1,0,0,1},{1,1,1,1}});
-gt_mask=torch.Tensor(1,224,224):zero();
+ prediction = net:forward(td.training_set_score.data)
+ print(prediction:size());
+ -- criterion:forward(prediction, output)
 
-gt_mask[1][10][10]=1;
+ -- train over this example in 3 steps
 
-gt_label=torch.Tensor({1})
--- torch.Tensor({1});
--- x_score=0.5
--- torch.Tensor({0.5});
-print(gt_label)
--- print(x_score);
+ -- (1) zero the accumulation of the gradients
+ net:zeroGradParameters()
 
--- loss = getLoss(x_score,x_seg,gt_label,gt_mask);
--- print(loss);
+ -- (2) accumulate gradients
+ dloss_score = getLossScoreD(prediction, td.training_set_score.label)
+    loss = getLossScore(prediction,td.training_set_score.label);
+ print('loss '..loss);
+ -- loss_total=torch.sum(dloss_seg);
+ -- print(loss_total);
+ net:backward(td.training_set_score.data, dloss_score)
 
-im = image.lena();
-im = image.scale(im,224,224,'bilinear');
-out = net:forward(im:cuda());
--- out = net:forward(im);
-print (out[2]:size())
-print (out[1]:size())
-print(out[1]);
-print (out)
+ -- (3) update parameters with learning rate
+ net:updateParameters(learningRate)
+end
 
-x_score=out[1];x_seg=out[2];
-print('x_score '..tostring(x_score[1]));
-print('x_seg '..tostring(x_seg[1][10][10]));
-
-loss = getLoss(x_score:double(),x_seg:double(),gt_label,gt_mask);
-print(loss);
-
-loss_score_d=getLossScoreD(x_score:double(),gt_label)
-print('loss_score_d = '..tostring(loss_score_d))
-loss_seg_d=getLossSegD(x_seg:double(),gt_mask);
-print('loss_seg_d:size() = '..tostring(loss_seg_d:size()))
-print('loss_seg_d[1][10][10] = '..loss_seg_d[1][10][10]);
-
+torch.save(out_file_net,net);
