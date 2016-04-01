@@ -76,6 +76,64 @@ def script_visualizeScoreResults(test_output_file,gt_output_file,gt_data_output_
 
 
 def main():
+	out_dir='/disk2/marchExperiments/deep_proposals/testing_3_28_2/images';
+	out_file_html=os.path.join(out_dir,'visualize.html');
+	rel_path=['/disk2','../../../..']
+	img_paths=[];
+	captions=[];
+	img_pre='img';
+	mask_pre='pred_mask';
+	imgs_all=[file_curr for file_curr in os.listdir(out_dir) if file_curr.startswith(img_pre)];
+
+	lists=[[],[],[],[]];
+	caption_lists=[[],[],[],[]]
+	for file_curr in imgs_all:
+		file_curr_split=file_curr.split('_');
+		print file_curr_split
+		if file_curr_split[3]=='pos':
+			if file_curr_split[4]=='correct.png':
+				lists[0].append(file_curr);
+				caption_lists[0].append('Positive Correct')
+			else:
+				lists[1].append(file_curr);
+				caption_lists[1].append('Positive Wrong')
+		else:
+			if file_curr_split[4]=='correct.png':
+				lists[2].append(file_curr);
+				caption_lists[2].append('Negative Correct')
+			else:
+				lists[3].append(file_curr);
+				caption_lists[3].append('Negative Wrong')
+
+		# print file_curr_split
+		# print file_curr;
+		# raw_input();
+
+	lists=[file_curr for file_curr_list in lists for file_curr in file_curr_list];
+	caption_lists=[file_curr for file_curr_list in caption_lists for file_curr in file_curr_list];
+
+	for idx,file_curr in enumerate(lists):
+		img_path=os.path.join(out_dir,file_curr);
+		mask_path=img_path.replace(img_pre,mask_pre);
+		img_paths.append([img_path.replace(rel_path[0],rel_path[1]),mask_path.replace(rel_path[0],rel_path[1])]);
+		captions.append([caption_lists[idx]+' img',caption_lists[idx]+' mask']);
+
+	visualize.writeHTML(out_file_html,img_paths,captions,height=224,width=224);	
+
+	# 	img_row_curr=[];
+	# 	img_curr=os.path.join(out_dir,'img_'+str(i)+'.png');
+	# 	img_row_curr.append(img_curr.replace(rel_path[0],rel_path[1]));
+	# 	for j in range(1,3):
+	# 		img_curr=os.path.join(out_dir,'img_crop_'+str(j)+'_'+str(i)+'.png');
+	# 		img_row_curr.append(img_curr.replace(rel_path[0],rel_path[1]));
+	# 	img_paths.append(img_row_curr);
+	# 	captions.append(['','','']);
+	# 
+	
+
+
+	return
+
 	out_dir='/disk2/marchExperiments/deep_proposals/checkNegScaling';
 	out_file_html=os.path.join(out_dir,'visualize.html');
 	rel_path=['/disk2','../../../..']
