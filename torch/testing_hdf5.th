@@ -1,0 +1,47 @@
+
+require 'hdf5'
+require 'image';
+
+path_to_db='/disk2/februaryExperiments/deep_proposals/positive_data.hdf5'
+local f = hdf5.open(path_to_db, 'r')
+size=f:read('/images'):dataspaceSize()
+print (size);
+print (size[2]..' '..size[3]..' '..size[4]);
+im_all = f:read('/images'):partial({1,10},{1,size[2]},{1,size[3]},{1,size[4]});
+masks_all = f:read('/masks'):partial({1,10},{1,1},{1,size[3]},{1,size[4]});
+
+
+print (im_all:size())
+print (im_all[2]:size())
+print (torch.min(im_all[2])..' '..torch.max(im_all[2]))
+
+print (masks_all:size())
+print (masks_all[2]:size())
+print (torch.min(masks_all[2])..' '..torch.max(masks_all[2]))
+
+for idx=1,10 do
+	im_one = im_all[idx]:clone();
+	-- im_one=torch.Tensor(im_one);
+	im_one=im_one:double();
+	print (im_one[1][20][40]);
+	im_one:div(255.0);
+	print (im_one[1][20][40]);
+
+	mask_one = masks_all[idx]:clone();
+	-- mask_one:mul(255);
+
+	print(im_one:size());
+	print (torch.min(im_one)..' '..torch.max(im_one));
+
+	print(mask_one:size());
+	print (torch.min(mask_one)..' '..torch.max(mask_one));
+
+	image.save('/disk2/marchExperiments/deep_proposals/test_im_'..idx..'.png',im_one);
+	image.save('/disk2/marchExperiments/deep_proposals/test_mask_'..idx..'.png',mask_one);
+end
+
+
+-- require 'hdf5'
+-- local myFile = hdf5.open('/path/to/read.h5', 'r')
+-- local data = myFile:read('/path/to/data'):all()
+-- myFile:close()

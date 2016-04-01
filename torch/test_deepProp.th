@@ -1,0 +1,624 @@
+require 'nn';
+require 'loadcaffe';
+require 'cutorch';
+require 'cunn';
+require 'optim'
+require 'hdf5'
+require 'image'
+require 'gnuplot'
+npy4th = require 'npy4th'
+
+do
+    local data_test = torch.class('data_test')
+
+    function data_test:__init(args)
+        self.file_path_test='/disk2/marchExperiments/deep_proposals/negatives.txt';
+        self.lines_test=self:readDataFile(self.file_path_test);
+        self.testing_data={};
+        self.batch_size_test=2;
+        self.start_idx_test=1;
+        self.params={crop_size={224,224},
+            mean={122,117,104},
+            step_size=16,
+            tolerance=32};
+        local scales={2^-2};
+        local x=scales[1];
+        while x<=2^-1 do
+            x=x*2^0.5
+            scales[#scales+1]=x;
+        end
+        self.params.scale_range=scales;
+    end
+
+    function data_test:getTestingData()
+        -- self.testing_data
+        -- .data=torch.zeros(self.batch_size_test,3,self.params.crop_size[1]
+            -- ,self.params.crop_size[2]);
+        self.start_idx_test=self:addTestingData(self.testing_data,self.batch_size_test,
+            self.lines_test,self.start_idx_test,self.params)
+    end
+
+    function data_test:shuffleLines(lines)
+        x=lines;
+        len=#lines;
+        shuffle = torch.randperm(len)
+        lines={};
+        for idx=1,len do
+            lines[idx]=x[shuffle[idx]];
+        end
+        return lines;
+    end
+
+    function data_test:readDataFile(file_path)
+        
+        local file_lines = {};
+        for line in io.lines(file_path) do 
+            local start_idx, end_idx = string.find(line, ' ');
+            local img_path=string.sub(line,1,start_idx-1);
+            local img_label=string.sub(line,end_idx+1,#line);
+            file_lines[#file_lines+1]={img_path,img_label};
+            if #file_lines==100 then
+                break;
+            end
+            -- print(file_path);
+        end 
+        -- print(#file_lines);
+        return file_lines
+    end
+
+    function data_test:slideWindow(img,step_size,crop_size)
+        local windows={};
+        -- format is start_r,start_c,end_r,end_c
+        local bboxes={};
+        local start_r=0;
+        while start_r+crop_size[1] <= img:size(2) do
+            local start_c=0;
+            while start_c+crop_size[2]<=img:size(3) do
+                local im_curr=image.crop(img,start_c,start_r,start_c+crop_size[2],start_r+crop_size[1]);
+                -- print (im_curr:size())
+                assert (im_curr:size(2)==crop_size[1] and im_curr:size(3)==crop_size[2]);
+                bboxes[#bboxes+1]={start_r,start_c,start_r+crop_size[1],start_c+crop_size[2]}
+                windows[#windows+1]=im_curr
+                start_c=start_c+step_size;
+            end
+            start_r=start_r+step_size;
+        end
+        -- print (#windows);
+        -- windows_tensor=torch.zeros(#windows,windows[1]:size(1),windows[1]:size(2),windows[1]:size(3));
+        -- for idx=1,#windows do
+        --     windows_tensor[idx]=windows[idx];
+        -- end
+        -- bboxes=torch.Tensor(bboxes);
+        return windows,bboxes
+    end
+
+    function data_test:bufferImage(img,crop_size,tolerance,stride)
+        -- format is row_min,column_min,row_max,column_max
+        local buffer={0,0,0,0};
+        local img_size={img:size(2),img:size(3)}
+        
+        -- add enough buffering for a single crop
+        for i=1,2 do
+            if img_size[i]<crop_size[i] then
+                local diff=crop_size[i]-img_size[i];
+                buffer[i]=math.floor(diff/2);
+                if diff%2==0 then    
+                    buffer[i+2]=buffer[i+2]+math.floor(diff/2);
+                else
+                    buffer[i+2]=buffer[i+2]+math.floor(diff/2)+1;
+                end
+                img_size[i]=buffer[i]+buffer[i+2]+img_size[i];
+                assert (img_size[i]==crop_size[i]);
+            end
+        end
+
+        -- if it's the single crop case, there's no need to add sliding window buffers
+        if img_size[1]~=crop_size[1] or img_size[2]~=crop_size[2] then
+            -- add tolerance buffering
+            assert (tolerance%2==0)
+            for i=1,2 do
+                img_size[i]=img_size[i]+tolerance;
+                buffer[i]=buffer[i]+tolerance/2;
+                buffer[i+2]=buffer[i+2]+tolerance/2;
+            end
+
+            -- add buffering to make strides complete
+            for i=1,2 do
+                if img_size[i]%stride~=0 then
+                    local div=math.floor(img_size[i]/stride)
+                    local new_dim=stride*(div+1);
+                    local diff=new_dim-img_size[i];
+                    local x=math.floor(diff/2)
+                    buffer[i]=buffer[i]+x;
+                    local check={x};
+                    if diff%2==0 then   
+                        local y= math.floor(diff/2);
+                        buffer[i+2]=buffer[i+2]+y;
+                        check[#check+1]=y;
+                    else
+                        local y= math.floor(diff/2)+1;
+                        buffer[i+2]=buffer[i+2]+y;
+                        check[#check+1]=y;
+                    end
+                    img_size[i]=check[1]+check[2]+img_size[i];
+                    assert (img_size[i]==new_dim);
+                end
+            end
+        end
+
+        -- -- do the actual padding
+        local pix    = 0 -- pixel value (color)
+        local size   = img:size()
+        size[2]=img_size[1];
+        size[3]=img_size[2];
+        local output = img.new():resize(size):fill(pix)
+        output:sub(1,img:size(1),buffer[1]+1,img:size(2)+buffer[1],buffer[2]+1,img:size(3)+buffer[2]):copy(img)
+        assert (output:size(2)%16==0 and output:size(3)%16==0)
+        -- return padded image and buffers
+        return output,buffer
+    end
+
+    function data_test:cat(table_to_cat)
+        local dimensions=table_to_cat[1]:size();
+        if type(dimensions)=='number' then
+            dimensions=torch.LongStorage({dimensions});
+        end
+        local dims_table={#table_to_cat};
+        for idx_dim_curr=1,#dimensions do dims_table[#dims_table+1]=dimensions[idx_dim_curr] end
+        local new_tensor=torch.Tensor(torch.LongStorage(dims_table));
+
+        for idx_table=1,#table_to_cat do 
+            new_tensor[idx_table]=table_to_cat[idx_table]
+        end
+
+        return new_tensor;
+    end
+
+    function data_test:convertStorageToTensor(stor)
+        local table={};
+        for i=1,#stor do table[#table+1]=stor[i] end
+        local table=torch.Tensor(table);
+        return table;
+    end
+
+    function data_test:addTestingData(training_set,num_im,list_files,start_idx,params)
+        local list_idx=start_idx;
+        local list_size=#list_files;
+        for curr_idx=1,num_im do
+            -- add mod length here to make the batch size rotate
+            local img_path=list_files[list_idx][1];
+        
+            local img=image.load(img_path);
+        
+            if img:size()[1]==1 then
+                img= torch.cat(img,img,1):cat(img,1)
+            end
+            assert( img:size(1)==3);
+
+            -- bring img to 0 255 range
+            img:mul(255);
+
+            -- subtract the mean
+            for i=1,img:size()[1] do
+                img[i]:csub(params.mean[i])
+            end        
+            
+            -- scale images 
+            local imgs_scaled=self:scaleImage(img,params.scale_range);
+
+            -- 
+            local windows_all_scales={};
+            local img_sizes_org={};
+            local img_sizes_scaled={};
+            local bboxes_all = {};
+            local buffers={};
+            local img_index={};
+
+            for idx=1,#imgs_scaled do
+                local img_curr=imgs_scaled[idx];
+                local img_curr_buffer,buffer=self:bufferImage(img_curr,params.crop_size,params.tolerance,params.step_size);
+                local windows,bboxes=self:slideWindow(img_curr_buffer,params.step_size,params.crop_size);
+                for window_idx=1,#bboxes do
+                    windows_all_scales[#windows_all_scales+1]=windows[window_idx];
+                    bboxes_all[#bboxes_all+1] = torch.Tensor(bboxes[window_idx]);
+                    buffers[#buffers+1]=torch.Tensor(buffer);
+                    img_sizes_scaled[#img_sizes_scaled+1]=self:convertStorageToTensor(img_curr:size());
+                    img_sizes_org[#img_sizes_org+1]=self:convertStorageToTensor(img:size());
+                    img_index[#img_index+1]=torch.Tensor({list_idx});
+                end
+            end
+            
+            if training_set.data~= nil then 
+                training_set.data = torch.cat(training_set.data,self:cat(windows_all_scales),1);
+            else
+                training_set.data= self:cat(windows_all_scales);
+            end
+
+            if training_set.img_sizes_org~= nil then 
+                training_set.img_sizes_org = torch.cat(training_set.img_sizes_org,self:cat(img_sizes_org),1);
+            else
+                training_set.img_sizes_org= self:cat(img_sizes_org);
+            end
+
+            if training_set.img_sizes_scaled~= nil then 
+                training_set.img_sizes_scaled = torch.cat(training_set.img_sizes_scaled,self:cat(img_sizes_scaled),1);
+            else
+                training_set.img_sizes_scaled= self:cat(img_sizes_scaled);
+            end
+
+            if training_set.bboxes_all~= nil then 
+                training_set.bboxes_all = torch.cat(training_set.bboxes_all,self:cat(bboxes_all),1);
+            else
+                training_set.bboxes_all= self:cat(bboxes_all);
+            end
+
+            if training_set.buffers~= nil then 
+                training_set.buffers = torch.cat(training_set.buffers,self:cat(buffers),1);
+            else
+                training_set.buffers= self:cat(buffers);
+            end
+
+            if training_set.img_index~= nil then 
+                training_set.img_index = torch.cat(training_set.img_index,self:cat(img_index),1);
+            else
+                training_set.img_index= self:cat(img_index);
+            end
+
+            list_idx=(list_idx%list_size)+1;
+            -- break;
+        end
+
+        return list_idx;
+    end
+
+    function data_test:scaleImage(img,scale_range)
+        local imgs_scaled={};
+        for i=1,#scale_range do
+            local scale_factor=scale_range[i];
+            local img_curr=image.scale(img,'*'..scale_factor)
+            imgs_scaled[#imgs_scaled+1]=img_curr;
+        end
+        return imgs_scaled
+    end
+
+
+
+
+
+end
+
+function getLossSeg(x_seg,gt_mask)
+	local loss=torch.mul(gt_mask,-1)
+	-- print(loss:size())
+	-- print(gt_mask:size())
+	loss:cmul(x_seg)
+	loss:exp();
+	loss:add(1);
+	loss:log();
+    loss:div(56*56);
+	loss=loss:sum()
+	return loss;
+end
+
+function getLossScore(x_score,gt_label)
+    local loss=torch.mul(gt_label,-1)
+    loss:cmul(x_score)
+    loss:exp();
+    loss:add(1);
+    loss:log();
+    loss:div(32);
+    loss=loss:sum()
+    return loss;
+end
+
+function getLossSegD(x_seg,gt_mask)
+	local dloss=torch.mul(gt_mask,-1);
+	dloss:cmul(x_seg);
+    -- print (torch.min(dloss)..' '..torch.max(dloss));
+	dloss:exp();
+    -- print (torch.min(dloss)..' '..torch.max(dloss));
+	local deno=torch.add(dloss,1);
+    -- print (torch.min(dloss)..' '..torch.max(dloss));
+	dloss:cmul(gt_mask);
+    -- print (torch.min(dloss)..' '..torch.max(dloss));
+	dloss:mul(-1);
+    -- print (torch.min(dloss)..' '..torch.max(dloss));
+	dloss:cdiv(deno);
+    -- print (torch.min(dloss)..' '..torch.max(dloss));
+	dloss:div(56*56);
+    -- print (torch.min(dloss)..' '..torch.max(dloss));
+	return dloss;
+end
+
+function getLossScoreD(x_score,gt_label)
+	-- print (x_score)
+	local dloss=torch.mul(gt_label,-1);
+	dloss:cmul(x_score);
+    dloss:exp();
+    local deno=torch.add(dloss,1);
+    dloss:cmul(gt_label);
+    dloss:mul(-1);
+    dloss:cdiv(deno);
+    dloss:div(32);
+    return dloss;
+end
+
+function makeMyNetworkJustScore(torch_file)
+    local vgg=torch.load(torch_file);
+    vgg:add(nn.SpatialMaxPooling(2,2,2,2));
+    vgg:add(nn.View(512*7*7));
+    vgg:add(nn.Linear(512*7*7,512));
+    vgg:add(nn.ReLU());
+    vgg:add(nn.Dropout(0.5));
+    vgg:add(nn.Linear(512,1024));
+    vgg:add(nn.ReLU());
+    vgg:add(nn.Dropout(0.5));
+    vgg:add(nn.Linear(1024,1));
+
+
+    return vgg
+end
+
+
+td = data_test();
+td:getTestingData();  
+
+for key,value in pairs(td.testing_data) do 
+    print(key,value:size())
+end
+
+-- print (td.testing_data.data:size());
+-- for i=1,td.testing_data.data:size(1) do
+--     print (td.testing_data.data[i]:size())
+--     print (torch.min(td.testing_data.data[i]))
+--     print (torch.max(td.testing_data.data[i]))
+-- end
+
+
+-- prototxt = '/disk2/januaryExperiments/vgg_16/VGG_ILSVRC_16_layers_deploy.prototxt';
+-- model = '/disk2/januaryExperiments/vgg_16/VGG_ILSVRC_16_layers.caffemodel';
+-- torch_file='/disk2/januaryExperiments/vgg_16/vgg16_onlyConv.dat';
+-- -- deep_prop_file='/disk2/februaryExperiments/deep_proposals/model_no_interleaving.dat';
+-- -- deep_prop_file='/disk2/februaryExperiments/deep_proposals/model_no_seg.dat';
+-- -- deep_prop_file='/disk2/februaryExperiments/deep_proposals/model_no_seg_trained_sgd.dat';
+-- deep_prop_file='/disk2/februaryExperiments/deep_proposals/model_no_interleaving_chunks.dat'
+-- -- out_file_net='/disk2/februaryExperiments/deep_proposals/model_no_interleaving_chunks_trained_100.dat'
+
+-- -- out_file_pred='/disk2/februaryExperiments/deep_proposals/model_no_seg_test.npy';
+-- -- out_file_gt='/disk2/februaryExperiments/deep_proposals/model_no_seg_gt.npy';
+-- -- out_file_gt_data='/disk2/februaryExperiments/deep_proposals/model_no_seg_gt_data.npy';
+-- -- out_dir_images='/disk2/marchExperiments/deep_proposals/checkPosNegData';
+-- deep_prop_file='/disk2/marchExperiments/deep_proposals/training_3_28/intermediate/model_ni_all_500.dat';
+-- out_dir_intermediate='/disk2/marchExperiments/deep_proposals/training_3_28_2/intermediate';
+-- out_dir_final='/disk2/marchExperiments/deep_proposals/training_3_28_2/final';
+
+-- out_file_net=out_dir_final..'/'..'model_ni_all_final.dat';
+
+-- out_file_loss_seg=out_dir_final..'/'..'loss_ni_all_final_seg.npy';
+-- out_file_loss_score=out_dir_final..'/'..'loss_ni_all_final_score.npy';
+
+-- out_file_intermediate_pre = out_dir_intermediate..'/'..'model_ni_all_';
+-- out_file_loss_intermediate_pre = out_dir_intermediate..'/'..'loss_ni_all_';
+
+-- out_file_loss_plot_intermediate_score=out_dir_intermediate..'/'..'loss_iter_score.png';
+-- out_file_loss_plot_final_score=out_dir_final..'/'..'loss_iter_score.png';
+
+-- out_file_loss_plot_intermediate_seg=out_dir_intermediate..'/'..'loss_iter_seg.png';
+-- out_file_loss_plot_final_seg=out_dir_final..'/'..'loss_iter_seg.png';
+
+-- local opt = {}         
+-- opt.optimization = 'sgd'
+
+-- opt.batch_size=32;
+-- opt.learningRate=0.001;
+-- opt.momentum=0.9
+-- opt.weightDecay=0.00005;
+-- opt.iterations=300000;
+-- opt.saveAfter=250;
+-- opt.plotAfter=50;
+-- opt.dispAfter=4;
+
+
+
+-- local optimState       
+-- local optimMethod      
+
+-- optimState = {
+--     learningRate = opt.learningRate,
+--     weightDecay = opt.weightDecay,
+--     momentum = opt.momentum,
+-- }
+
+-- optimMethod = optim.sgd
+
+
+
+-- print ('loading network');
+-- -- net = torch.load(torch_file);
+
+-- net = torch.load(deep_prop_file);
+-- -- net:get(2):get(2):add(nn.Tanh())
+-- -- print(net);
+
+-- print ('done loading network');
+-- -- print (net:get(1));
+-- print (net);
+
+-- print ('making cuda');
+-- net = net:cuda();
+-- print ('done');
+
+
+-- -- print (net:get(31));
+-- -- print (net:get(31));
+-- -- print (torch.sum(net:get(29).weight))
+
+-- -- print (net:get(31):get(1):backward())
+
+
+
+
+-- print ('loading params');
+-- local parameters, gradParameters = net:getParameters()
+-- print ('loading done');
+
+-- td = data();
+-- local counter = 0
+
+-- local fevalScore = function(x)
+--     if x ~= parameters then
+--     parameters:copy(x)
+--     end
+    
+--     td:getTrainingDataToyScore();    
+--     local batch_inputs = td.training_set_score.data_test:cuda();
+--     local batch_targets = td.training_set_score.label:cuda();
+    
+--     gradParameters:zero()
+--     -- In order, these lines compute:
+--     -- 1. compute outputs (log probabilities) for each data point
+    
+--     local batch_outputs_mid = net:get(1):forward(batch_inputs)
+--     local batch_outputs = net:get(2):get(1):forward(batch_outputs_mid)
+--     -- print (batch_outputs:size())
+
+--     -- batch_outputs=batch_outputs[1];
+--     -- print (batch_outputs);
+--     -- 2. compute the loss of these outputs, measured against the true labels in batch_target
+--     local batch_loss = getLossScore(batch_outputs, batch_targets)
+--     -- 3. compute the derivative of the loss wrt the outputs of the model
+--     local dloss_doutput = getLossScoreD(batch_outputs, batch_targets)
+    
+--     -- print ('loss '..batch_loss..' dloss '..torch.sum(dloss_doutput))
+
+--     -- 4. use gradients to update weights, we'll understand this step more next week
+--     -- get(31):get(1):
+--     local gradInputs=net:get(2):get(1):backward(batch_outputs_mid, dloss_doutput)
+--     -- print (gradInputs:size())
+--     net:get(1):backward(batch_inputs, gradInputs)
+--     -- print (net:get(5))
+--     -- print (torch.sum(net:get(2):get(2):get(1).weight))
+--     -- print (torch.sum(net:get(1):get(29).weight))
+--     -- print (torch.sum(net:get(1):get(29).weight))
+--     -- optim expects us to return
+--     --     loss, (gradient of loss with respect to the weights that we're optimizing)
+--     return batch_loss, gradParameters
+-- end
+
+
+-- local fevalSeg = function(x)
+--     if x ~= parameters then
+--     parameters:copy(x)
+--     end
+    
+--     td:getTrainingDataToy();    
+--     local batch_inputs = td.training_set_seg.data:cuda();
+--     -- clone()
+    
+--     local batch_targets = td.training_set_seg.label:cuda();
+
+--     -- print (batch_inputs:size())
+--     -- print (batch_targets:size())
+--     gradParameters:zero()
+--     -- In order, these lines compute:
+--     -- 1. compute outputs (log probabilities) for each data point
+    
+--     local batch_outputs_mid = net:get(1):forward(batch_inputs)
+--     -- print (batch_outputs_mid:size())
+--     local batch_outputs = net:get(2):get(2):forward(batch_outputs_mid)
+--     -- print (batch_outputs:size())
+
+--     -- batch_outputs=batch_outputs[1];
+--     -- print (batch_outputs);
+--     -- 2. compute the loss of these outputs, measured against the true labels in batch_target
+--     local batch_loss = getLossSeg(batch_outputs, batch_targets)
+--     -- 3. compute the derivative of the loss wrt the outputs of the model
+--     local dloss_doutput = getLossSegD(batch_outputs, batch_targets)
+    
+--     -- print ('loss '..batch_loss..' dloss '..torch.sum(dloss_doutput))
+
+--     -- 4. use gradients to update weights, we'll understand this step more next week
+--     -- get(31):get(1):
+--     local gradInputs=net:get(2):get(2):backward(batch_outputs_mid, dloss_doutput):clone()
+--     -- print (gradInputs:size())
+--     net:get(1):backward(batch_inputs, gradInputs)
+--     -- print (net:get(5))
+--     -- print (torch.sum(net:get(2):get(1):get(3).weight))
+--     -- print (torch.sum(net:get(1):get(29).weight))
+--     -- optim expects us to return
+--     --     loss, (gradient of loss with respect to the weights that we're optimizing)
+--     return batch_loss, gradParameters
+-- end
+
+
+-- local losses_seg = {};
+-- local losses_score = {};
+
+-- for i=1,opt.iterations do
+    
+--     if i%2==0 then
+--         local _, minibatch_loss = optimMethod(fevalSeg,parameters, optimState)
+--         -- print(string.format("minibatches processed: %6s, loss = %6.6f", i, minibatch_loss[1]))
+--         losses_seg[#losses_seg + 1] = minibatch_loss[1] -- append the new loss
+--     else
+--         local _, minibatch_loss = optimMethod(fevalScore,parameters, optimState)
+--         -- print(string.format("minibatches processed: %6s, loss = %6.6f", i, minibatch_loss[1]))
+--         losses_score[#losses_score + 1] = minibatch_loss[1] -- append the new loss
+--     end
+
+--     if i%opt.dispAfter==0 then
+--         print(string.format("minibatches processed: %6s, loss seg = %6.6f, loss score = %6.6f", i, 
+--             losses_seg[#losses_seg],losses_score[#losses_score]))
+--     end
+
+--     -- check if model needs to be saved. save it.
+--     -- also save losses
+--     if i%opt.saveAfter==0 then
+--         local out_file_intermediate=out_file_intermediate_pre..i..'.dat';
+--         torch.save(out_file_intermediate,net);
+--         local out_file_loss_intermediate=out_file_loss_intermediate_pre..i..'_score.npy';
+--         npy4th.savenpy(out_file_loss_intermediate, torch.Tensor(losses_score))
+--         local out_file_loss_intermediate=out_file_loss_intermediate_pre..i..'_seg.npy';
+--         npy4th.savenpy(out_file_loss_intermediate, torch.Tensor(losses_seg))
+--     end
+    
+--     -- check if losses need to be plotted. plot them.
+--     if i%opt.plotAfter==0 then
+        
+--         gnuplot.pngfigure(out_file_loss_plot_intermediate_score)
+--         local iteration_score = torch.range( 1, #losses_score)
+--         gnuplot.plot({'Score Loss', iteration_score, torch.Tensor(losses_score),  '-'})
+--         gnuplot.xlabel('Iterations')
+--         gnuplot.ylabel('Loss')
+--         gnuplot.plotflush()
+
+--         gnuplot.pngfigure(out_file_loss_plot_intermediate_seg)
+--         local iteration_seg = torch.range( 1, #losses_seg)
+--         gnuplot.plot({'Segmentation Loss', iteration_seg, torch.Tensor(losses_seg), '-'})
+--         gnuplot.xlabel('Iterations')
+--         gnuplot.ylabel('Loss')
+--         gnuplot.plotflush()
+--     end
+
+-- end
+
+-- -- save final model
+-- torch.save(out_file_net,net);
+-- npy4th.savenpy(out_file_loss_seg, torch.Tensor(losses_seg))
+-- npy4th.savenpy(out_file_loss_score, torch.Tensor(losses_score))
+
+-- -- save final plot
+
+-- gnuplot.pngfigure(out_file_loss_plot_final_score)
+-- local iteration_score = torch.range( 1, #losses_score)
+-- gnuplot.plot({'Score Loss', iteration_score, torch.Tensor(losses_score),  '-'})
+-- gnuplot.xlabel('Iterations')
+-- gnuplot.ylabel('Loss')
+-- gnuplot.plotflush()
+
+-- gnuplot.pngfigure(out_file_loss_plot_final_seg)
+-- local iteration_seg = torch.range( 1, #losses_seg)
+-- gnuplot.plot({'Segmentation Loss', iteration_seg, torch.Tensor(losses_seg), '-'})
+-- gnuplot.xlabel('Iterations')
+-- gnuplot.ylabel('Loss')
+-- gnuplot.plotflush()

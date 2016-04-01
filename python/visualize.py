@@ -23,6 +23,7 @@ def writeHTML(file_name,im_paths,captions,height=200,width=200):
         for col in range(len(im_paths[row])):
             f.write('<td><img src="');
             f.write(im_paths[row][col]);
+            # f.write('" height=100%; width=100%;"/></td>');
             f.write('" height='+str(height)+' width='+str(width)+'"/></td>');
             f.write('    ');
         f.write('\n</tr>\n');

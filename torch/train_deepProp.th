@@ -49,19 +49,19 @@ do
         self.start_idx_positive_score=self:addTrainingDataPositive(self.training_set_score,
             self.batch_size_positive_score,
             self.lines,self.start_idx_positive_score,self.params,false)
-        -- should shuffle neg data every time
+        
         self.start_idx_negative_score=self:addTrainingDataNegativeScore(self.training_set_score,
             self.batch_size_negative_score,
             self.lines_negative,self.start_idx_negative_score,self.params,self.batch_size_positive_score+1)
     end
 
     function data:getTrainingDataToy()
-        self.training_set.data=torch.zeros(self.batch_size,3,self.params.crop_size[1],self.params.crop_size[2]);
-        self.training_set.label=torch.zeros(self.batch_size,1,self.params.crop_size[1],
+        self.training_set_seg.data=torch.zeros(self.batch_size_seg,3,self.params.crop_size[1],self.params.crop_size[2]);
+        self.training_set_seg.label=torch.zeros(self.batch_size_seg,1,self.params.crop_size[1],
         	self.params.crop_size[2]);
 
-        self.start_idx_train=self:addTrainingDataPositive(self.training_set,self.batch_size,
-        	self.lines,self.start_idx_train,self.params,true)
+        self.start_idx_positive_seg=self:addTrainingDataPositive(self.training_set_seg,self.batch_size_seg,
+        	self.lines,self.start_idx_positive_seg,self.params,true)
     end
 
     function data:readDataFile(file_path)
@@ -177,7 +177,7 @@ do
         local list_idx=start_idx;
         local list_size=#list_files;
         -- local count=0;
-        print('list_idx_start '..list_idx);
+        -- print('list_idx_start '..list_idx);
         for curr_idx=1,num_im do
             -- count=count+1;
             -- add mod length here to make the batch size rotate
@@ -200,7 +200,7 @@ do
             list_idx=(list_idx%list_size)+1;
         end
         -- print( count);
-        print('list_idx_end '..list_idx);
+        -- print('list_idx_end '..list_idx);
         return list_idx;
     end
 
@@ -236,7 +236,7 @@ do
     function data:addTrainingDataNegativeScore(training_set,num_im,list_files,start_idx,params,training_data_idx)
         local list_idx=start_idx;
         local list_size=#list_files;
-        print('list_idx_start '..list_idx);
+        -- print('list_idx_start '..list_idx);
         for curr_idx=training_data_idx,training_data_idx+num_im-1 do
 
             local img_path=list_files[list_idx][1];
@@ -280,177 +280,9 @@ do
             training_set.label[curr_idx][1]=-1;
             list_idx=(list_idx%list_size)+1;
         end
-        print('list_idx_end '..list_idx);
+        -- print('list_idx_end '..list_idx);
         return list_idx;  
     end  
-
-end
-
-
-local clock = os.clock
-
-function script_removeLayersFromCaffe(prototxt,model,out_file,bottom_layer_num)
-	net = loadcaffe.load(prototxt,model);
-	for i=net:size(),bottom_layer_num,-1 do
-		net:remove(i)
-	end
-
-	-- print(net:size());
-	-- for i=1,net:size() do
-	-- 	print(i);
-	-- 	print(net:get(i));
-	-- end
-
-	torch.save(out_file,net);
-end
-
-function makeMyNetworkJustSeg(torch_file)
-	local vgg=torch.load(torch_file);
-
-
-	-- score_branch=nn.Sequential();
-	-- -- add interleaving here
-	-- score_branch:add(nn.SpatialMaxPooling(2,2,2,2));
-	-- score_branch:add(nn.View(512*7*7));
-	-- score_branch:add(nn.Linear(512*7*7,512));
-	-- score_branch:add(nn.ReLU());
-	-- score_branch:add(nn.Dropout(0.5));
-	-- score_branch:add(nn.Linear(512,1024));
-	-- score_branch:add(nn.ReLU());
-	-- score_branch:add(nn.Dropout(0.5));
-	-- score_branch:add(nn.Linear(1024,1));
-	-- -- print(score_branch);
-
-	-- seg_branch=nn.Sequential();
-	vgg:add(nn.SpatialConvolution(512,512,1,1));
-	vgg:add(nn.View(512*14*14));
-	vgg:add(nn.Linear(512*14*14,512));
-	vgg:add(nn.Linear(512,56*56));
-	vgg:add(nn.View(1,56,56));
-	-- add bilinearupsampling here to get output of size 224*224 -done
-	vgg:add(nn.SpatialUpSamplingNearest(4));
-    -- vgg:add(nn.Tanh());
-	-- print(seg_branch);
-
-	-- split_net=nn.ConcatTable();
-	-- split_net:add(score_branch);
-	-- split_net:add(seg_branch);
-	-- vgg:add(split_net);
-	-- print(vgg)
-
-	-- im=torch.rand(3,224,224);
-	-- out=vgg:forward(im);
-	-- print (vgg:get(31):get(2):get(1))
-	return vgg
-end
-
-function makeMyNetworkJustScore(torch_file)
-    local vgg=torch.load(torch_file);
-
-
-    -- score_branch=nn.Sequential();
-    -- -- add interleaving here
-    vgg:add(nn.SpatialMaxPooling(2,2,2,2));
-    vgg:add(nn.View(512*7*7));
-    vgg:add(nn.Linear(512*7*7,512));
-    vgg:add(nn.ReLU());
-    vgg:add(nn.Dropout(0.5));
-    vgg:add(nn.Linear(512,1024));
-    vgg:add(nn.ReLU());
-    vgg:add(nn.Dropout(0.5));
-    vgg:add(nn.Linear(1024,1));
-
-
-    return vgg
-end
-
-function makeMyNetwork(torch_file)
-	local vgg=torch.load(torch_file);
-
-
-	local score_branch=nn.Sequential();
-	-- add interleaving here
-	score_branch:add(nn.SpatialMaxPooling(2,2,2,2));
-	score_branch:add(nn.View(512*7*7));
-	score_branch:add(nn.Linear(512*7*7,512));
-	score_branch:add(nn.ReLU());
-	score_branch:add(nn.Dropout(0.5));
-	score_branch:add(nn.Linear(512,1024));
-	score_branch:add(nn.ReLU());
-	score_branch:add(nn.Dropout(0.5));
-	score_branch:add(nn.Linear(1024,1));
-	-- print(score_branch);
-
-	local seg_branch=nn.Sequential();
-	seg_branch:add(nn.SpatialConvolution(512,512,1,1));
-	seg_branch:add(nn.View(512*14*14));
-	seg_branch:add(nn.Linear(512*14*14,512));
-	seg_branch:add(nn.Linear(512,56*56));
-	seg_branch:add(nn.View(1,56,56));
-	-- add bilinearupsampling here to get output of size 224*224 -done
-	seg_branch:add(nn.SpatialUpSamplingNearest(4));
-	-- print(seg_branch);
-
-	local split_net=nn.ConcatTable();
-	split_net:add(score_branch);
-	split_net:add(seg_branch);
-	-- vgg:add(split_net);
-
-    local total_net = nn.Sequential();
-    total_net:add(vgg);
-    total_net:add(split_net);
-	-- print(vgg)
-
-	-- im=torch.rand(3,224,224);
-	-- out=vgg:forward(im);
-	-- print (vgg:get(31):get(2):get(1))
-	return total_net
-end
-
-function makeSimpleNet()
-	local net = nn.Sequential()
-	net:add(nn.SpatialConvolution(1, 6, 5, 5)) 
-	net:add(nn.Sigmoid())                       
-	net:add(nn.SpatialMaxPooling(2,2,2,2))     
-	net:add(nn.SpatialConvolution(6, 16, 5, 5))
-	net:add(nn.Sigmoid())                       
-	net:add(nn.SpatialMaxPooling(2,2,2,2))
-	net:add(nn.View(16*5*5))                    
-	net:add(nn.Linear(16*5*5, 120))             
-	net:add(nn.Sigmoid())                       
-	net:add(nn.Linear(120, 84))
-	net:add(nn.Sigmoid())                       
-	net:add(nn.Linear(84, 10))                   
-	net:add(nn.LogSoftMax()) 
-
-	return net
-end
-
-function makeUpSamplingNetwork()
-	net=nn.Sequential();
-	net:add(nn.SpatialUpSamplingNearest(4));
-	return net;
-end
-
-function testUpSamplingGPU()
-	im = image.lena();
-	im = image.scale(im,56,56);
-	im_c=im:cuda();
-
-	im_temp=im_c:double();
-	im_big_org=image.scale(im_temp,224,224,'bilinear');
-	im_big_org = im_big_org:typeAs(im_c);
-
-
-	net=makeUpSamplingNetwork();
-	net=net:cuda();
-	im_big_net=net:forward(im_c);
-	print(im_big_net:type());
-	print(im_big_org:type());
-	print(torch.all(torch.eq(im_big_org,im_big_net)))
-
-	image.save('/disk2/temp/lena_net.jpg',im_big_net);
-	image.save('/disk2/temp/lena_org.jpg',im_big_org);
 
 end
 
@@ -478,37 +310,22 @@ function getLossScore(x_score,gt_label)
     return loss;
 end
 
-
-function getLoss(x_score,x_seg,gt_label,gt_mask)
-	if gt_label==-1 then
-		loss_seg=0;
-	else
-		loss_seg=getLossSeg(x_seg,gt_mask);
-		loss_seg= (1+gt_label[1])/(2*56*56)*loss_seg;
-		print (loss_seg);
-	end
-	-- print('other');
-	-- print(x_score)
-	-- print(gt_label);
-	loss_score=(1/32)*getLossSeg(x_score,gt_label);
-
-	
-	-- loss_score=0;
-	print (loss_score)
-	total_loss=	loss_seg+loss_score;
-	return total_loss;
-end
-
--- TO DO fix this loss for -1,1 labels rather than zero 1 labels -DONE
 function getLossSegD(x_seg,gt_mask)
 	local dloss=torch.mul(gt_mask,-1);
 	dloss:cmul(x_seg);
+    print (torch.min(dloss)..' '..torch.max(dloss));
 	dloss:exp();
+    print (torch.min(dloss)..' '..torch.max(dloss));
 	local deno=torch.add(dloss,1);
+    print (torch.min(dloss)..' '..torch.max(dloss));
 	dloss:cmul(gt_mask);
+    print (torch.min(dloss)..' '..torch.max(dloss));
 	dloss:mul(-1);
+    print (torch.min(dloss)..' '..torch.max(dloss));
 	dloss:cdiv(deno);
+    print (torch.min(dloss)..' '..torch.max(dloss));
 	dloss:div(56*56);
+    print (torch.min(dloss)..' '..torch.max(dloss));
 	return dloss;
 end
 
@@ -525,30 +342,183 @@ function getLossScoreD(x_score,gt_label)
     return dloss;
 end
 
+function makeMyNetworkJustScore(torch_file)
+    local vgg=torch.load(torch_file);
+    vgg:add(nn.SpatialMaxPooling(2,2,2,2));
+    vgg:add(nn.View(512*7*7));
+    vgg:add(nn.Linear(512*7*7,512));
+    vgg:add(nn.ReLU());
+    vgg:add(nn.Dropout(0.5));
+    vgg:add(nn.Linear(512,1024));
+    vgg:add(nn.ReLU());
+    vgg:add(nn.Dropout(0.5));
+    vgg:add(nn.Linear(1024,1));
 
-function sleep(n)  -- seconds
-  local t0 = clock()
-  while clock() - t0 <= n do end
+
+    return vgg
 end
-
-
 
 
 prototxt = '/disk2/januaryExperiments/vgg_16/VGG_ILSVRC_16_layers_deploy.prototxt';
 model = '/disk2/januaryExperiments/vgg_16/VGG_ILSVRC_16_layers.caffemodel';
 torch_file='/disk2/januaryExperiments/vgg_16/vgg16_onlyConv.dat';
-out_file_net='/disk2/marchExperiments/deep_proposals/debugging_nan/seg_no_tan_string.dat';
+-- deep_prop_file='/disk2/februaryExperiments/deep_proposals/model_no_interleaving.dat';
+-- deep_prop_file='/disk2/februaryExperiments/deep_proposals/model_no_seg.dat';
+deep_prop_file='/disk2/februaryExperiments/deep_proposals/model_no_seg_trained_sgd.dat';
+deep_prop_file='/disk2/februaryExperiments/deep_proposals/model_no_interleaving_chunks.dat'
+out_file_pred='/disk2/februaryExperiments/deep_proposals/model_no_seg_test.npy';
+out_file_gt='/disk2/februaryExperiments/deep_proposals/model_no_seg_gt.npy';
+out_file_gt_data='/disk2/februaryExperiments/deep_proposals/model_no_seg_gt_data.npy';
+out_dir_images='/disk2/marchExperiments/deep_proposals/checkPosNegData';
 
-net=makeMyNetworkJustSeg(torch_file)
+-- net=makeMyNetworkJustScore(torch_file)
+-- print(net);
+-- torch.save(out_file_net,net);
+
+
+local opt = {}         
+opt.optimization = 'sgd'
+
+opt.batch_size=32;
+opt.learningRate=0.00001;
+opt.momentum=0.9
+opt.weightDecay=0.00005;
+opt.iterations=300;
+
+local optimState       
+local optimMethod      
+
+optimState = {
+    learningRate = opt.learningRate,
+    weightDecay = opt.weightDecay,
+    momentum = opt.momentum,
+}
+
+optimMethod = optim.sgd
+
+print ('loading network');
+-- net = torch.load(torch_file);
+
+net = torch.load(deep_prop_file);
+-- net = net:cuda();
+print ('done loading network');
+-- print (net:get(1));
+
 print (net);
--- model_string = torch.load(out_file_net);
--- file = torch.DiskFile(out_file_net, 'r')
--- net = file:readString();
--- print (model_string);
+-- print (net:get(31));
+-- print (net:get(31));
+-- print (torch.sum(net:get(29).weight))
 
--- file = torch.DiskFile(out_file_net, 'w')
-torch.save(out_file_net,torch.serialize(net))
--- file:close()
+-- print (net:get(31):get(1):backward())
+
+td = data();
+
+local parameters, gradParameters = net:getParameters()
+local counter = 0
+
+local fevalScore = function(x)
+    if x ~= parameters then
+    parameters:copy(x)
+    end
+    
+    td:getTrainingDataToyScore();    
+    local batch_inputs = td.training_set_score.data:cuda();
+    local batch_targets = td.training_set_score.label:cuda();
+    
+    gradParameters:zero()
+    -- In order, these lines compute:
+    -- 1. compute outputs (log probabilities) for each data point
+    
+    local batch_outputs_mid = net:get(1):forward(batch_inputs)
+    local batch_outputs = net:get(2):get(1):forward(batch_outputs_mid)
+    -- print (batch_outputs:size())
+
+    -- batch_outputs=batch_outputs[1];
+    -- print (batch_outputs);
+    -- 2. compute the loss of these outputs, measured against the true labels in batch_target
+    local batch_loss = getLossScore(batch_outputs, batch_targets)
+    -- 3. compute the derivative of the loss wrt the outputs of the model
+    local dloss_doutput = getLossScoreD(batch_outputs, batch_targets)
+    
+    print ('loss '..batch_loss..' dloss '..torch.sum(dloss_doutput))
+
+    -- 4. use gradients to update weights, we'll understand this step more next week
+    -- get(31):get(1):
+    local gradInputs=net:get(2):get(1):backward(batch_inputs, dloss_doutput)
+    -- print (gradInputs:size())
+    net:get(1):backward(batch_inputs, gradInputs)
+    -- print (net:get(5))
+    print (torch.sum(net:get(2):get(2):get(1).weight))
+    print (torch.sum(net:get(1):get(29).weight))
+    -- print (torch.sum(net:get(1):get(29).weight))
+    -- optim expects us to return
+    --     loss, (gradient of loss with respect to the weights that we're optimizing)
+    return batch_loss, gradParameters
+end
 
 
--- [number] writeString(str)
+local fevalSeg = function(x)
+    if x ~= parameters then
+    parameters:copy(x)
+    end
+    
+    td:getTrainingDataToy();    
+    local batch_inputs = td.training_set_seg.data:clone()
+    -- :cuda();
+    local batch_targets = td.training_set_seg.label:clone();
+    -- :cuda();
+    print (batch_inputs:size())
+    print (batch_targets:size())
+    gradParameters:zero()
+    -- In order, these lines compute:
+    -- 1. compute outputs (log probabilities) for each data point
+    
+    local batch_outputs_mid = net:get(1):forward(batch_inputs)
+    -- print (batch_outputs_mid:size())
+    local batch_outputs = net:get(2):get(2):forward(batch_outputs_mid)
+    -- print (batch_outputs:size())
+
+    -- batch_outputs=batch_outputs[1];
+    -- print (batch_outputs);
+    -- 2. compute the loss of these outputs, measured against the true labels in batch_target
+    local batch_loss = getLossSeg(batch_outputs, batch_targets)
+    -- 3. compute the derivative of the loss wrt the outputs of the model
+    local dloss_doutput = getLossSegD(batch_outputs, batch_targets)
+    
+    print ('loss '..batch_loss..' dloss '..torch.sum(dloss_doutput))
+
+    -- 4. use gradients to update weights, we'll understand this step more next week
+    -- get(31):get(1):
+    local gradInputs=net:get(2):get(2):backward(batch_inputs, dloss_doutput)
+    -- print (gradInputs:size())
+    net:get(1):backward(batch_inputs, gradInputs)
+    -- print (net:get(5))
+    print (torch.sum(net:get(2):get(1):get(3).weight))
+    print (torch.sum(net:get(1):get(29).weight))
+    -- optim expects us to return
+    --     loss, (gradient of loss with respect to the weights that we're optimizing)
+    return batch_loss, gradParameters
+end
+
+
+local losses = {}  
+
+for i=1,opt.iterations do
+    print ('iter,'..i);
+    if i%2==0 then
+        local _, minibatch_loss = optimMethod(fevalSeg,parameters, optimState)
+        print(string.format("minibatches processed: %6s, loss = %6.6f", i, minibatch_loss[1]))
+        losses[#losses + 1] = minibatch_loss[1] -- append the new loss
+    else
+        -- local _, minibatch_loss = optimMethod(fevalScore,parameters, optimState)
+        -- print(string.format("minibatches processed: %6s, loss = %6.6f", i, minibatch_loss[1]))
+        -- losses[#losses + 1] = minibatch_loss[1] -- append the new loss
+    end
+    -- print (optimState)
+    -- print (minibatch_loss.shape)
+    -- if i % 10 == 0 then -- don't print *every* iteration, this is enough to get the gist
+    
+
+end
+
+-- torch.save(out_file_net,net);

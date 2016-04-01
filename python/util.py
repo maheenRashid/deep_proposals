@@ -1,6 +1,10 @@
 import numpy as np;
 import scipy
 import subprocess;
+import os;
+def mkdir(dir_curr):
+    if not os.path.exists(dir_curr):
+        os.mkdir(dir_curr);
 
 def getIndexingArray(big_array,small_array):
     small_array=np.array(small_array);
