@@ -7,7 +7,40 @@ require 'hdf5'
 require 'image'
 require 'gnuplot'
 npy4th = require 'npy4th'
-require 'data';
+require 'data_human_flow';
+
+function makeMyNetwork(torch_file)
+	local vgg=torch.load(torch_file);
+	vgg:add(nn.SpatialConvolution(512,512,1,1));
+	vgg:add(nn.SpatialConvolution(512,128,5,5));
+
+	local score_branch=nn.Sequential();
+	score_branch:add(nn.View(128*10*10));
+	score_branch:add(nn.Linear(128*10*10,512));
+	score_branch:add(nn.ReLU());
+	score_branch:add(nn.Dropout(0.5));
+	score_branch:add(nn.Linear(512,1024));
+	score_branch:add(nn.ReLU());
+	score_branch:add(nn.Dropout(0.5));
+	score_branch:add(nn.Linear(1024,1));
+
+	local seg_branch=nn.Sequential();
+	seg_branch:add(nn.View(128*10*10));
+	seg_branch:add(nn.Linear(128*10*10,512));
+	seg_branch:add(nn.Linear(512,56*56));
+	seg_branch:add(nn.View(1,56,56));
+	seg_branch:add(nn.SpatialUpSamplingNearest(4));
+
+	local split_net=nn.ConcatTable();
+	split_net:add(score_branch);
+	split_net:add(seg_branch);
+
+    local total_net = nn.Sequential();
+    total_net:add(vgg);
+    total_net:add(split_net);
+
+	return total_net
+end
 
 function getLossSeg(x_seg,gt_mask)
 	local loss=torch.mul(gt_mask,-1)
@@ -65,71 +98,113 @@ function getLossScoreD(x_score,gt_label)
     return dloss;
 end
 
-function makeMyNetworkJustScore(torch_file)
-    local vgg=torch.load(torch_file);
-    vgg:add(nn.SpatialMaxPooling(2,2,2,2));
-    vgg:add(nn.View(512*7*7));
-    vgg:add(nn.Linear(512*7*7,512));
-    vgg:add(nn.ReLU());
-    vgg:add(nn.Dropout(0.5));
-    vgg:add(nn.Linear(512,1024));
-    vgg:add(nn.ReLU());
-    vgg:add(nn.Dropout(0.5));
-    vgg:add(nn.Linear(1024,1));
 
+function script_saveNewArchitecture(deep_prop_file,deep_prop_new)
 
-    return vgg
+	local net = torch.load(deep_prop_file);
+	local layer_old=net:get(1):get(1)
+	-- layer_old=nn.SpatialConvolution(3,64,3,3,1,1,1,1)
+	-- print (net:get(1):get(1));
+	print ('layer_old');
+	print (layer_old)
+	print (layer_old.weight:size(),torch.min(layer_old.weight),torch.max(layer_old.weight))
+	print (layer_old.bias:size(),torch.min(layer_old.bias),torch.max(layer_old.bias))
+
+	local layer=nn.SpatialConvolution(6,64,3,3,1,1,1,1);
+	layer.weight=torch.zeros(layer.weight:size());
+	layer.bias=torch.zeros(layer.bias:size());
+	print ('layer_pre')
+	print (layer)
+	print (layer.weight:size(),torch.min(layer.weight),torch.max(layer.weight))
+	print (layer.bias:size(),torch.min(layer.bias),torch.max(layer.bias))
+
+	print (layer.weight[{{},{1,3},{},{}}]:size())
+	layer.weight[{{},{1,3},{},{}}]=layer_old.weight;
+	layer.bias=layer_old.bias;
+
+	-- print (layer.weight:size(),torch.min(layer.weight),torch.max(layer.weight))
+	-- for weight_no=1,layer.weight:size(2) do
+	-- 	layer_curr=layer.weight[{{},{weight_no},{},{}}]
+	-- 	print (weight_no,layer_curr:size(),torch.min(layer_curr),torch.max(layer_curr))
+	-- end
+	print ('layer_post')
+	print (layer.weight:size(),torch.min(layer.weight),torch.max(layer.weight))
+	print (layer.bias:size(),torch.min(layer.bias),torch.max(layer.bias))
+
+	net:get(1):insert(layer,1);
+	net:get(1):remove(2);
+	print (net)
+	local layer_old=net:get(1):get(1)
+	print ('layer_final')
+	print (layer_old)
+	print (layer_old.weight:size(),torch.min(layer_old.weight),torch.max(layer_old.weight))
+	print (layer_old.bias:size(),torch.min(layer_old.bias),torch.max(layer_old.bias))
+
+	torch.save(deep_prop_new,net);
+
 end
 
-
 -- td = data();
--- td:getTrainingDataToyScore();  
--- print (td.training_set_score.data:size())
+-- print (td.lines_positive[1]);
+-- td:getTrainingDataToyScore();
+-- print (td.training_set_score.data:size());
+-- -- td.training_set_score.data=td.training_set_score.data:int();
+-- -- td.training_set_score.data=td.training_set_score.data:cuda();
+-- for idx=1,td.training_set_score.data:size(1) do
+-- 	print (idx);
+-- 	img=td.training_set_score.data[idx];
+-- 	for j=1,img:size(1) do
+-- 		-- print (img[j]:size());
+-- 		print (j,torch.min(img[j]),torch.max(img[j]),type(img[j][1][1]))
+-- 	end
+-- end
+
+-- print (td.training_set_score.label:size())
 
 
-prototxt = '/disk2/januaryExperiments/vgg_16/VGG_ILSVRC_16_layers_deploy.prototxt';
-model = '/disk2/januaryExperiments/vgg_16/VGG_ILSVRC_16_layers.caffemodel';
-torch_file='/disk2/januaryExperiments/vgg_16/vgg16_onlyConv.dat';
--- deep_prop_file='/disk2/februaryExperiments/deep_proposals/model_no_interleaving.dat';
--- deep_prop_file='/disk2/februaryExperiments/deep_proposals/model_no_seg.dat';
--- deep_prop_file='/disk2/februaryExperiments/deep_proposals/model_no_seg_trained_sgd.dat';
-deep_prop_file='/disk2/februaryExperiments/deep_proposals/model_no_interleaving_chunks.dat'
--- out_file_net='/disk2/februaryExperiments/deep_proposals/model_no_interleaving_chunks_trained_100.dat'
 
--- out_file_pred='/disk2/februaryExperiments/deep_proposals/model_no_seg_test.npy';
--- out_file_gt='/disk2/februaryExperiments/deep_proposals/model_no_seg_gt.npy';
--- out_file_gt_data='/disk2/februaryExperiments/deep_proposals/model_no_seg_gt_data.npy';
--- out_dir_images='/disk2/marchExperiments/deep_proposals/checkPosNegData';
-deep_prop_file='/disk2/marchExperiments/deep_proposals/training_3_28/intermediate/model_ni_all_500.dat';
-out_dir_intermediate='/disk2/marchExperiments/deep_proposals/training_3_28_2/intermediate';
-out_dir_final='/disk2/marchExperiments/deep_proposals/training_3_28_2/final';
+local torch_file='/disk2/januaryExperiments/vgg_16/vgg16_onlyConv.dat';
+local deep_prop_file='/disk2/marchExperiments/deep_proposals/new_design/model_untrained.dat'
+local deep_prop_new='/disk2/marchExperiments/deep_proposals/new_design/model_untrained_flow.dat'
 
-out_file_net=out_dir_final..'/'..'model_ni_all_final.dat';
+local out_dir_intermediate='/disk2/marchExperiments/deep_proposals/new_design/training_human_with_flow/intermediate';
+local out_dir_final='/disk2/marchExperiments/deep_proposals/new_design/training_human_with_flow/final';
 
-out_file_loss_seg=out_dir_final..'/'..'loss_ni_all_final_seg.npy';
-out_file_loss_score=out_dir_final..'/'..'loss_ni_all_final_score.npy';
+local out_file_net=out_dir_final..'/'..'model_all_final.dat';
 
-out_file_intermediate_pre = out_dir_intermediate..'/'..'model_ni_all_';
-out_file_loss_intermediate_pre = out_dir_intermediate..'/'..'loss_ni_all_';
+local out_file_loss_seg=out_dir_final..'/'..'loss_all_final_seg.npy';
+local out_file_loss_score=out_dir_final..'/'..'loss_all_final_score.npy';
 
-out_file_loss_plot_intermediate_score=out_dir_intermediate..'/'..'loss_iter_score.png';
-out_file_loss_plot_final_score=out_dir_final..'/'..'loss_iter_score.png';
+local out_file_intermediate_pre = out_dir_intermediate..'/'..'model_all_';
+local out_file_loss_intermediate_pre = out_dir_intermediate..'/'..'loss_all_';
 
-out_file_loss_plot_intermediate_seg=out_dir_intermediate..'/'..'loss_iter_seg.png';
-out_file_loss_plot_final_seg=out_dir_final..'/'..'loss_iter_seg.png';
+local out_file_loss_plot_intermediate_score=out_dir_intermediate..'/'..'loss_iter_score.png';
+local out_file_loss_plot_final_score=out_dir_final..'/'..'loss_iter_score.png';
+
+local out_file_loss_plot_intermediate_seg=out_dir_intermediate..'/'..'loss_iter_seg.png';
+local out_file_loss_plot_final_seg=out_dir_final..'/'..'loss_iter_seg.png';
+
+
+-- local im=torch.Tensor(1,3,224,224);
+-- local net=makeMyNetwork(torch_file);
+-- print (net)
+-- local out=net:forward(im);
+-- print (out);
+-- torch.save(deep_prop_file,net);
 
 local opt = {}         
 opt.optimization = 'sgd'
 
 opt.batch_size=32;
-opt.learningRate=0.001;
+opt.learningRate=0.0001;
 opt.momentum=0.9
 opt.weightDecay=0.00005;
-opt.iterations=300000;
-opt.saveAfter=250;
+opt.iterations=10000;
+opt.saveAfter=1000;
 opt.plotAfter=50;
 opt.dispAfter=4;
 
+cutorch.setDevice(1);
 
 
 local optimState       
@@ -146,29 +221,15 @@ optimMethod = optim.sgd
 
 
 print ('loading network');
--- net = torch.load(torch_file);
-
-net = torch.load(deep_prop_file);
--- net:get(2):get(2):add(nn.Tanh())
--- print(net);
+net = torch.load(deep_prop_new);
 
 print ('done loading network');
--- print (net:get(1));
+-- -- print (net:get(1));
 print (net);
 
 print ('making cuda');
 net = net:cuda();
 print ('done');
-
-
--- print (net:get(31));
--- print (net:get(31));
--- print (torch.sum(net:get(29).weight))
-
--- print (net:get(31):get(1):backward())
-
-
-
 
 print ('loading params');
 local parameters, gradParameters = net:getParameters()
@@ -225,12 +286,8 @@ local fevalSeg = function(x)
     
     td:getTrainingDataToy();    
     local batch_inputs = td.training_set_seg.data:cuda();
-    -- clone()
-    
     local batch_targets = td.training_set_seg.label:cuda();
 
-    -- print (batch_inputs:size())
-    -- print (batch_targets:size())
     gradParameters:zero()
     -- In order, these lines compute:
     -- 1. compute outputs (log probabilities) for each data point

@@ -4,12 +4,12 @@ do
 
     function data:__init(args)
         -- print ('initing');
-        self.file_path_positive='/disk2/februaryExperiments/deep_proposals/positive_data.txt';
+        self.file_path_positive='/disk2/aprilExperiments/deep_proposals/positives_person.txt';
         self.file_path_negative='/disk2/marchExperiments/deep_proposals/negatives.txt';
 
-        self.batch_size_seg=50;
-        self.batch_size_positive_score=25;
-        self.batch_size_negative_score=25;
+        self.batch_size_seg=32;
+        self.batch_size_positive_score=16;
+        self.batch_size_negative_score=16;
 
 
         self.start_idx_train=1;
@@ -24,9 +24,9 @@ do
             tolerance=48};
         self.training_set_seg={};
         self.training_set_score={};
-        self.lines_seg=self:readDataFile(self.file_path_positive,self.batch_size_seg);
-        self.lines_positive=self:readDataFile(self.file_path_positive,self.batch_size_positive_score);
-        self.lines_negative=self:readDataFile(self.file_path_negative,self.batch_size_negative_score);
+        self.lines_seg=self:readDataFile(self.file_path_positive)
+        self.lines_positive=self:readDataFile(self.file_path_positive)
+        self.lines_negative=self:readDataFile(self.file_path_negative);
         
         self.lines_seg=self:shuffleLines(self.lines_seg);
         self.lines_positive=self:shuffleLines(self.lines_positive);
@@ -113,7 +113,7 @@ do
             self.lines,self.start_idx_positive_seg,self.params,true)
     end
 
-    function data:readDataFile(file_path,num_to_read)
+    function data:readDataFile(file_path)
         -- print(file_path);
         local file_lines = {};
         for line in io.lines(file_path) do 
@@ -124,7 +124,7 @@ do
             local img_path=string.sub(line,1,start_idx-1);
             local img_label=string.sub(line,end_idx+1,#line);
             file_lines[#file_lines+1]={img_path,img_label};
-            if #file_lines==num_to_read then
+            if #file_lines==100 then
                 break;
             end
             -- print(file_path);

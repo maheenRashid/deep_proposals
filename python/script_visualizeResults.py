@@ -76,14 +76,59 @@ def script_visualizeScoreResults(test_output_file,gt_output_file,gt_data_output_
 
 
 def main():
-	out_dir='/disk2/marchExperiments/deep_proposals/testing_3_28_2/images';
+	# out_dir='/disk2/marchExperiments/deep_proposals/testing_3_28_2/images';
+	# out_dir='/disk2/marchExperiments/deep_proposals/new_design/training_human/images';
+	out_dir='/disk2/aprilExperiments/dual_flow/onlyHuman/images';
+	out_dir_old='/disk2/aprilExperiments/dual_flow/onlyHuman/images_old';
+	img_pre='img';
+	ims=[file_curr for file_curr in os.listdir(out_dir) if file_curr.startswith(img_pre) and not file_curr.endswith('.npy')];
+	img_pre='img';
+	mask_pre='pred_mask';
+	
+	out_file_html=os.path.join(out_dir,'visualize.html');
+	rel_path_old=['/disk2','../../../..']
+	rel_path=['/disk2','../../../../..']
+	img_paths=[];
+	captions=[];
+	
+
+	for file_curr in ims:
+		print file_curr
+		file_curr_split=file_curr.split('_');
+		file_curr_pre='_'.join(file_curr_split[:4]);
+		# print file_curr_pre;
+		# print file_curr_split
+		# print file_curr;
+		im_path_old=[os.path.join(out_dir_old,x) for x in os.listdir(out_dir_old) if x.startswith(file_curr_pre)][0];
+		im_path = os.path.join(out_dir,file_curr);
+		# print im_path_old;
+		# print os.path.exists(im_path_old);
+		# raw_input();
+		mask_path=im_path.replace(img_pre,mask_pre);
+		mask_path_old=im_path_old.replace(img_pre,mask_pre);
+		
+		im=scipy.misc.imread(mask_path);
+		mask_path=mask_path+'_heat.png'
+		visualize.saveMatAsImage(im[:,:,0],mask_path)
+		im=scipy.misc.imread(mask_path_old);
+		mask_path_old=mask_path_old+'_heat.png'
+		visualize.saveMatAsImage(im[:,:,0],mask_path_old)
+
+		img_path=im_path;
+		img_paths.append([img_path.replace(rel_path[0],rel_path[1]),mask_path.replace(rel_path[0],rel_path[1]),im_path_old.replace(rel_path_old[0],rel_path_old[1]),mask_path_old.replace(rel_path_old[0],rel_path_old[1])]);
+		captions.append([img_path[img_path.rindex('/')+1:]+' flow',mask_path[mask_path.rindex('/')+1:]+' flow',im_path_old[im_path_old.rindex('/')+1:]+' old',mask_path_old[mask_path_old.rindex('/')+1:]+' old']);
+
+	visualize.writeHTML(out_file_html,img_paths,captions,height=224,width=224);	
+
+
+	return
 	out_file_html=os.path.join(out_dir,'visualize.html');
 	rel_path=['/disk2','../../../..']
 	img_paths=[];
 	captions=[];
 	img_pre='img';
 	mask_pre='pred_mask';
-	imgs_all=[file_curr for file_curr in os.listdir(out_dir) if file_curr.startswith(img_pre)];
+	imgs_all=[file_curr for file_curr in os.listdir(out_dir) if file_curr.startswith(img_pre) and not file_curr.endswith('.npy')];
 
 	lists=[[],[],[],[]];
 	caption_lists=[[],[],[],[]]
@@ -115,8 +160,16 @@ def main():
 	for idx,file_curr in enumerate(lists):
 		img_path=os.path.join(out_dir,file_curr);
 		mask_path=img_path.replace(img_pre,mask_pre);
-		img_paths.append([img_path.replace(rel_path[0],rel_path[1]),mask_path.replace(rel_path[0],rel_path[1])]);
-		captions.append([caption_lists[idx]+' img',caption_lists[idx]+' mask']);
+		
+		img_path_old=img_path.replace(out_dir,out_dir_old);
+		mask_path_old=mask_path.replace(out_dir,out_dir_old);
+
+		im=scipy.misc.imread(mask_path);
+		mask_path=mask_path+'_heat.png'
+		# visualize.showMat(im[:,:,0]);
+		visualize.saveMatAsImage(im[:,:,0],mask_path)
+		img_paths.append([img_path.replace(rel_path[0],rel_path[1]),mask_path.replace(rel_path[0],rel_path[1]),img_path_old.replace(rel_path[0],rel_path[1]),mask_path_old.replace(rel_path[0],rel_path[1])]);
+		captions.append([caption_lists[idx]+' img',caption_lists[idx]+' mask',caption_lists[idx]+'OLD img',caption_lists[idx]+'OLD mask']);
 
 	visualize.writeHTML(out_file_html,img_paths,captions,height=224,width=224);	
 

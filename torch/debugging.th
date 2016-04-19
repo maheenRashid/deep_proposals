@@ -1,0 +1,37 @@
+require 'image'
+npy4th = require 'npy4th'
+
+data=require ('data_neg_new_flow_100');
+
+local pos_file='/disk2/aprilExperiments/dual_flow/onlyHuman_all_xavier/positives_debug.txt';
+local neg_file='/disk2/aprilExperiments/dual_flow/onlyHuman_all_xavier/negatives_debug.txt'
+
+td=data({file_path_positive=pos_file,file_path_negative=neg_file});
+-- for i=1,10 do
+	td:getTrainingDataToyScore();
+	for i=1,td.training_set_score.data:size(1) do
+		print (i,torch.min(td.training_set_score.data[i]),torch.max(td.training_set_score.data[i]),torch.min(td.training_set_score.data_flow[i]),torch.max(td.training_set_score.data_flow[i]))
+	end
+-- end
+
+--     require 'image'
+
+--     function loadImage(img_path)
+--     	img=image.load(img_path)
+--     	return img
+--     end
+
+-- 	local img_path='/disk2/aprilExperiments/deep_proposals/flow_all_humans/results_flow/COCO_train2014_000000536498_292472_flow.png';
+-- 	status,err= pcall(loadImage,img_path)
+-- 	print (status)
+
+-- 	print (err)
+
+
+
+
+-- img_path='/disk2/aprilExperiments/deep_proposals/flow_all_humans/results_flow/COCO_train2014_000000536498_292472_flow.png'
+-- img_path='/disk2/aprilExperiments/deep_proposals/flow_all_humans/results_flow/COCO_train2014_000000536498_292472_mask.png'
+-- img_path='/disk2/aprilExperiments/deep_proposals/flow_all_humans/results_flow/COCO_train2014_000000536498_292472_flow.png'
+
+

@@ -9,7 +9,7 @@ import multiprocessing;
 import glob;
 import util;
 
-def addLeadingZeros(id_no,im_pre=None,im_post=None,num_digits_total=12,):
+def addLeadingZeros(id_no,im_pre=None,im_post=None,num_digits_total=12):
     if im_pre is None:
         im_pre='';
     if im_post is None:
@@ -279,6 +279,85 @@ def script_saveBboxFiles(anno,out_dir,im_pre):
 
 
 def main():
+
+
+
+    in_file_pos='/disk2/aprilExperiments/dual_flow/onlyHuman_all_xavier/negatives.txt';
+
+    out_file_pos='/disk2/aprilExperiments/dual_flow/onlyHuman_all_xavier/negatives_debug.txt';
+    img_part='/disk2/februaryExperiments/deep_proposals/positives/COCO_train2014_000000536498_292472.png '
+    mask_part='/disk2/februaryExperiments/deep_proposals/positives/COCO_train2014_000000536498_292472_mask.png '
+    flow_part='/disk2/aprilExperiments/deep_proposals/flow_all_humans/results_flow/COCO_train2014_000000536498_292472_flow.png'
+    problem_string=img_part+mask_part+flow_part;
+
+    lines=util.readLinesFromFile(in_file_pos);
+    lines_rel=lines[:99];
+    lines_rel=[problem_string]+lines_rel
+    util.writeFile(out_file_pos,lines_rel);
+
+
+
+
+    return
+    # text_prop='/disk2/aprilExperiments/deep_proposals/positives_person.txt';
+    text_prop='/disk2/marchExperiments/deep_proposals/negatives.txt';
+    data_flow='/disk2/aprilExperiments/deep_proposals/flow_neg/test.txt';
+    lines=util.readLinesFromFile(text_prop);
+    # lines=lines[:100];
+    lines_new=[];
+    for line in lines:
+        lines_new.append(line[:line.index(' ')]+' 1');
+    util.writeFile(data_flow,lines_new);
+
+
+
+    return
+    # {u'supercategory': u'person', u'id': 1, u'name': u'person'}
+    path_to_anno='/disk2/ms_coco/annotations/instances_train2014.json';
+    path_to_positives='/disk2/februaryExperiments/deep_proposals/positives/';
+    mask_post='_mask.png';
+    im_pre=os.path.join(path_to_positives,'COCO_train2014_');
+    out_file_text='/disk2/aprilExperiments/deep_proposals/positives_person.txt';
+
+    # path_to_anno='/disk2/ms_coco/annotations/train_subset_just_anno.json';
+    pairs=[];
+    anno=json.load(open(path_to_anno,'rb'))['annotations'];
+    print len(anno);
+    print anno[0];
+    for idx_r,anno_r in enumerate(anno):
+        if idx_r%100==0:
+            print idx_r,len(anno);
+
+        if anno_r['category_id']==1:
+            image_id=anno_r['image_id']
+            im_post='_'+str(idx_r)+'.png';
+            im_file=addLeadingZeros(image_id,im_pre=im_pre,im_post=im_post,num_digits_total=12);
+            im_mask_file=im_file.replace('.png',mask_post);
+            pairs.append(im_file+' '+im_mask_file);
+            
+    print len(pairs);
+    print pairs[0];
+    util.writeFile(out_file_text,pairs);
+    
+
+    # anno['annotations']=0;
+    # json.dump(anno,open(path_to_anno_new,'wb'));
+    # print anno.keys();
+    # print anno['categories']
+
+    # supercategory=[];
+
+    # for cat in anno['categories']:
+    #     supercategory.append(cat['supercategory']);
+
+    #     if cat['supercategory']=='person':
+    #         print cat
+
+    # supercategory=set(supercategory);
+    # for cat in supercategory:
+    #     print cat;
+
+    return
     path_to_im='/disk2/ms_coco/train2014'
     path_to_anno='/disk2/ms_coco/annotations';
     out_dir='/disk2/marchExperiments/deep_proposals/negatives';

@@ -4,12 +4,14 @@ do
 
     function data:__init(args)
         -- print ('initing');
-        self.file_path_positive='/disk2/februaryExperiments/deep_proposals/positive_data.txt';
-        self.file_path_negative='/disk2/marchExperiments/deep_proposals/negatives.txt';
+        -- self.file_path_positive='/disk2/aprilExperiments/deep_proposals/positives_person.txt';
+        -- self.file_path_negative='/disk2/marchExperiments/deep_proposals/negatives.txt';
+        self.file_path_positive='/disk2/aprilExperiments/deep_proposals/addingFlow/positives.txt';
+        self.file_path_negative='/disk2/aprilExperiments/deep_proposals/addingFlow/negatives.txt';
 
-        self.batch_size_seg=50;
-        self.batch_size_positive_score=25;
-        self.batch_size_negative_score=25;
+        self.batch_size_seg=32;
+        self.batch_size_positive_score=16;
+        self.batch_size_negative_score=16;
 
 
         self.start_idx_train=1;
@@ -21,12 +23,13 @@ do
             crop_size={224,224},
             scale_range={285,224},
             mean={122,117,104},
+            mean_flow={128,128,128},
             tolerance=48};
         self.training_set_seg={};
         self.training_set_score={};
-        self.lines_seg=self:readDataFile(self.file_path_positive,self.batch_size_seg);
-        self.lines_positive=self:readDataFile(self.file_path_positive,self.batch_size_positive_score);
-        self.lines_negative=self:readDataFile(self.file_path_negative,self.batch_size_negative_score);
+        self.lines_seg=self:readDataFileFlow(self.file_path_positive)
+        self.lines_positive=self:readDataFileFlow(self.file_path_positive)
+        self.lines_negative=self:readDataFileFlow(self.file_path_negative);
         
         self.lines_seg=self:shuffleLines(self.lines_seg);
         self.lines_positive=self:shuffleLines(self.lines_positive);
@@ -63,7 +66,7 @@ do
         local start_idx_negative_score_before = self.start_idx_negative_score
         local start_idx_positive_score_before = self.start_idx_positive_score
 
-        self.training_set_score.data=torch.zeros(total_batch_size,3,self.params.crop_size[1]
+        self.training_set_score.data=torch.zeros(total_batch_size,6,self.params.crop_size[1]
             ,self.params.crop_size[2]);
         self.training_set_score.label=torch.zeros(total_batch_size,1);
 
@@ -90,7 +93,7 @@ do
     function data:getTrainingDataToy()
         local start_idx_positive_seg_before = self.start_idx_positive_seg
 
-        self.training_set_seg.data=torch.zeros(self.batch_size_seg,3,self.params.crop_size[1]
+        self.training_set_seg.data=torch.zeros(self.batch_size_seg,6,self.params.crop_size[1]
             ,self.params.crop_size[2]);
         self.training_set_seg.label=torch.zeros(self.batch_size_seg,1,self.params.crop_size[1],
         	self.params.crop_size[2]);
@@ -113,7 +116,33 @@ do
             self.lines,self.start_idx_positive_seg,self.params,true)
     end
 
-    function data:readDataFile(file_path,num_to_read)
+    function data:readDataFileFlow(file_path)
+        local file_lines = {};
+        for line in io.lines(file_path) do 
+            -- print(file_path);
+            local start_idx, end_idx = string.find(line, ' ');
+            -- print(line);
+            -- print (start_idx)
+            local img_path=string.sub(line,1,start_idx-1);
+            local string_temp=string.sub(line,end_idx+1,#line);
+            -- print (string_temp)
+            local start_idx, end_idx = string.find(string_temp, ' ');
+
+            local img_label=string.sub(string_temp,1,start_idx-1);
+            local flow_path=string.sub(string_temp,end_idx+1,#string_temp);
+
+            file_lines[#file_lines+1]={img_path,img_label,flow_path};
+
+            if #file_lines==100 then
+                break;
+            end
+            -- print(file_path);
+        end 
+        -- print(#file_lines);
+        return file_lines
+    end
+
+    function data:readDataFile(file_path)
         -- print(file_path);
         local file_lines = {};
         for line in io.lines(file_path) do 
@@ -124,7 +153,7 @@ do
             local img_path=string.sub(line,1,start_idx-1);
             local img_label=string.sub(line,end_idx+1,#line);
             file_lines[#file_lines+1]={img_path,img_label};
-            if #file_lines==num_to_read then
+            if #file_lines==100 then
                 break;
             end
             -- print(file_path);
@@ -154,7 +183,7 @@ do
       return out
     end
 
-    function data:jitterImage(img,mask,jitter_size,crop_size)
+    function data:jitterImage(img,mask,jitter_size,crop_size,flow_img)
         local x=math.random(jitter_size-1);
         local y=math.random(jitter_size-1);
         -- print ('x y '..x..' '..y);
@@ -164,16 +193,20 @@ do
         -- print (type(img))
         local img=image.crop(img:clone(),x,y,x_e,y_e);
         local mask=image.crop(mask:clone(),x,y,x_e,y_e);
-        return img,mask
+        local flow_img=image.crop(flow_img:clone(),x,y,x_e,y_e);
+        return img,mask,flow_img
     end
 
-    function data:scaleImage(img,mask,scale_range,crop_size)
+    function data:scaleImage(img,mask,scale_range,crop_size,flow_img)
         local new_scale=math.random(scale_range[1],scale_range[2]);
         -- print ('new_scale '..new_scale);
         local img=image.scale(img,new_scale);
         -- print (img:size())
         local mask=image.scale(mask,new_scale,'simple');
         -- print (mask:size())
+        local flow_img=image.scale(flow_img,new_scale);
+        -- print (img:size())
+
         local start_x=math.floor((img:size()[2]-crop_size[1])/2);
         -- print (start_x)
         local start_y=math.floor((img:size()[3]-crop_size[2])/2);
@@ -182,10 +215,13 @@ do
         -- print (img:size())
         local mask=image.crop(mask,start_x,start_y,start_x+crop_size[1],start_y+crop_size[2]);
         -- print (mask:size());
-        return img,mask
+        local flow_img=image.crop(flow_img,start_x,start_y,start_x+crop_size[1],start_y+crop_size[2]);
+        -- print (img:size())
+        
+        return img,mask,flow_img
     end
 
-    function data:processImAndMaskPositive(img,mask,params)
+    function data:processImAndMaskPositive(img,mask,params,flow_img)
 
         if img:size()[1]==1 then
             img= torch.cat(img,img,1):cat(img,1)
@@ -199,25 +235,36 @@ do
         mask:mul(2);
         mask:csub(1);
 
+
+        -- do the same for flow_img
+        flow_img:mul(255);
+
         -- jitter, scale or flip 
 
         local rand=math.random(3);
         if rand==1 then
-            img,mask=self:jitterImage(img,mask,params.jitter_size,params.crop_size);
+            img,mask,flow_img=self:jitterImage(img,mask,params.jitter_size,params.crop_size,flow_img);
         elseif rand==2 then
-            img,mask=self:scaleImage(img,mask,params.scale_range,params.crop_size);
+            img,mask,flow_img=self:scaleImage(img,mask,params.scale_range,params.crop_size,flow_img);
         else
-            img,mask=self:jitterImage(img,mask,params.jitter_size,params.crop_size);
+            img,mask,flow_img=self:jitterImage(img,mask,params.jitter_size,params.crop_size,flow_img);
             image.hflip(img,img);
             image.hflip(mask,mask);
+            image.hflip(flow_img,flow_img);
         end
 
         -- subtract the mean
         for i=1,img:size()[1] do
             img[i]:csub(params.mean[i])
         end
+
+        -- subtract the mean for flow_img
+        for i=1,flow_img:size()[1] do
+            flow_img[i]:csub(params.mean_flow[i])
+        end
+
         -- return
-        return img,mask
+        return img,mask,flow_img
 
     end
 
@@ -263,14 +310,20 @@ do
             -- print ('list_idx '..list_idx);
             local img_path=list_files[list_idx][1];
             local mask_path=list_files[list_idx][2];
+            local flow_img_path=list_files[list_idx][3];
+
             local img=image.load(img_path);
+            local flow_img=image.load(flow_img_path);
+
             if img:size()[1]==1 then
                 img= torch.cat(img,img,1):cat(img,1)
+
             end
             local mask=image.load(mask_path);
             
-            img,mask=self:processImAndMaskPositive(img,mask,params)
-            training_set.data[curr_idx]=img;
+            img,mask,flow_img=self:processImAndMaskPositive(img,mask,params,flow_img)
+
+            training_set.data[curr_idx]=torch.cat({img,flow_img},1):int();
             if segFlag then
                 training_set.label[curr_idx]=mask;
             else
@@ -314,7 +367,7 @@ do
         return isValid;
     end
 
-    function data:scaleNegImage(img_org,bbox,crop_size)
+    function data:scaleNegImage(img_org,bbox,crop_size,flow_img_org)
         local scale_factor=math.random();
         scale_factor = (scale_factor*1.5)+0.5;
 
@@ -354,15 +407,20 @@ do
             counter=counter+1;
         end
 
+        local img;
+        local flow_img
+
         if no_neg then
             img=-1;
         else
             img=image.scale(img_org,'*'..scale_factor)
+            flow_img=image.scale(flow_img_org,'*'..scale_factor);
+
             -- print (img:size())
             bbox=torch.mul(bbox,scale_factor);
             bbox=bbox:floor();
         end
-        return img,bbox
+        return img,bbox,flow_img
 
     end
 
@@ -388,6 +446,15 @@ do
             for i=1,img_org:size()[1] do
                 img_org[i]:csub(params.mean[i])
             end
+
+            -- do the same for the flow image
+            local flow_path=list_files[list_idx][3];
+            local flow_org=image.load(flow_path);
+            flow_org=flow_org:mul(255);
+            for i=1,flow_org:size()[1] do
+                flow_org[i]:csub(params.mean_flow[i])
+            end
+
             -- load bbox and make in to int
             local bbox_org=npy4th.loadnpy(npy_path);
             bbox_org=bbox_org:floor();
@@ -395,12 +462,13 @@ do
             local crop_box={};
             local img;
             local bbox;
+            local flow_img
             local counter=0;
             local counter_lim=100;
             local no_neg=false;
             while 1 do
                 --scale the image and the bbox
-                img,bbox=self:scaleNegImage(img_org:clone(),bbox_org:clone(),params.crop_size);
+                img,bbox,flow_img=self:scaleNegImage(img_org:clone(),bbox_org:clone(),params.crop_size,flow_org:clone());
                 if counter>=counter_lim or img==-1 then
                     print 'NO NEG OUTER'
                     no_neg=true;
@@ -434,10 +502,13 @@ do
             else
                 -- add to training data
                 local img_crop= image.crop(img,crop_box[1],crop_box[2],crop_box[3],crop_box[4]);
+                local flow_img_crop= image.crop(flow_img,crop_box[1],crop_box[2],crop_box[3],crop_box[4]);
                 if math.random()<=0.5 then
                     img_crop=image.hflip(img_crop);
+                    flow_img_crop=image.hflip(flow_img_crop);
                 end
-                training_set.data[curr_idx]=img_crop;
+                -- figure out how to dstack flow_img_crop and img_crop
+                training_set.data[curr_idx]=torch.cat({img_crop, flow_img_crop},1):int();
                 training_set.label[curr_idx][1]=-1;
             end
             list_idx=(list_idx%list_size)+1;

@@ -1,3 +1,5 @@
+npy4th = require 'npy4th'
+require 'image'
 
 do  
     local data = torch.class('data')
@@ -21,7 +23,9 @@ do
             crop_size={224,224},
             scale_range={285,224},
             mean={122,117,104},
-            tolerance=48};
+            tolerance=32,
+            tolerance_scale={0.5,2},
+            max_dim=128};
         self.training_set_seg={};
         self.training_set_score={};
         self.lines_seg=self:readDataFile(self.file_path_positive,self.batch_size_seg);
@@ -30,7 +34,7 @@ do
         
         self.lines_seg=self:shuffleLines(self.lines_seg);
         self.lines_positive=self:shuffleLines(self.lines_positive);
-        self.lines_negative=self:shuffleLines(self.lines_negative);
+        -- self.lines_negative=self:shuffleLines(self.lines_negative);
 
         -- local path_to_db_pos='/disk2/februaryExperiments/deep_proposals/positive_data_100.hdf5';
         -- f = hdf5.open(path_to_db_pos, 'r')
@@ -366,6 +370,20 @@ do
 
     end
 
+
+    function data:scaleNegImageNew(img_org,bbox)
+        local scale_factor=math.random();
+        -- scale_factor = (scale_factor*1.5)+0.5;
+        scale_factor=1.6913094386469;
+        local img=image.scale(img_org,'*'..scale_factor)
+        -- print (img:size())
+        bbox=torch.mul(bbox,scale_factor);
+        bbox=bbox:floor();
+        print ('scale factor',scale_factor);
+        return img,bbox
+        -- ,scale_factor
+    end
+
     function data:addTrainingDataNegativeScore(training_set,num_im,list_files,start_idx,params,training_data_idx)
         local list_idx=start_idx;
         local list_size=#list_files;
@@ -503,6 +521,216 @@ do
         end
 
     end
+
+
+    function data:scaleTest(bbox,crop_box,tolerance_scale)
+        local area_pos=bbox[3]*bbox[4];
+        local area_crop=(crop_box[3]-crop_box[1])*(crop_box[4]-crop_box[2]);
+        local scale_diff=area_crop/area_pos;
+        isValid=true;
+
+        if scale_diff<tolerance_scale[2] and scale_diff>tolerance_scale[1] then
+            isValid=false;
+        end
+        -- print (area_pos,area_crop,scale_diff,isValid);
+        return isValid;
+    end
+
+    function data:isValidNegativeNew(crop_box,bbox_all,max_dim,tolerance_distance,tolerance_scale)
+        local isValid=true;
+        for bbox_idx=1,1 do
+            -- bbox_all:size(1) do
+            -- print ('bbox_idx,isValid',bbox_idx,isValid)
+            local bbox=bbox_all[bbox_idx];
+            local dims={bbox[3],bbox[4]};
+            local max_dim_pos=torch.max(torch.Tensor(dims));
+            local min_dim_pos=torch.min(torch.Tensor(dims));
+            local scale=max_dim/max_dim_pos;
+            local new_tolerance=tolerance_distance/scale;
+        
+            local center_box=torch.Tensor({bbox[1]+bbox[3]/2.0,bbox[2]+bbox[4]/2.0});
+            local center_crop=torch.Tensor({crop_box[1]+(crop_box[3]-crop_box[1])/2,crop_box[2]+(crop_box[4]-crop_box[2])/2});
+            local dist_centers=torch.sqrt(torch.sum(torch.pow(torch.csub(center_box,center_crop),2)));
+            -- local isValid=true;
+            
+            -- local new_crop_size=224/scale;
+            -- print (scale,max_dim_pos,max_dim_pos*scale,new_crop_size)
+
+
+
+            -- print (center_box,center_crop)
+            -- print (new_tolerance,dist_centers,dist_centers<new_tolerance)
+
+            if dist_centers<new_tolerance then
+                local new_crop_size=224/scale;
+                -- local r1=new_crop_size-max_dim_pos;
+                -- local r2=new_crop_size-min_dim_pos;
+                -- local area_pos_conv=bbox[3]*bbox[4];
+                local area_pos=new_crop_size*new_crop_size;
+                local area_crop=(crop_box[3]-crop_box[1])*(crop_box[4]-crop_box[2]);
+                local scale_diff=area_crop/area_pos;
+                -- isValid=true;
+                -- print (scale_diff);
+                if scale_diff<tolerance_scale[2] and scale_diff>tolerance_scale[1] then
+                    isValid=false;
+
+                end
+                -- print (area_pos_conv,area_crop/area_pos_conv,area_pos,area_crop,scale_diff,isValid);
+            end
+            if isValid==false then
+                break;
+            end
+            -- break;
+        end
+        return isValid;
+    end
+
+    function data:getNegData(num_im,list_files,start_idx,params)
+        local list_idx=start_idx;
+        local list_size=#list_files;
+        print (list_idx);
+        local img_path=list_files[list_idx][1];
+        print (list_idx,img_path)
+        local npy_path=list_files[list_idx][2];
+        local img_org=image.load(img_path);
+
+        -- make sure image has 3 channels
+        if img_org:size()[1]==1 then
+            img_org= torch.cat(img_org,img_org,1):cat(img_org,1)
+        end
+        
+        local bbox_org=npy4th.loadnpy(npy_path);
+        bbox_org=bbox_org:floor();
+
+        -- return img_org,bbox_org,{1,1,1,1}
+        -- ,{0};
+
+        local img
+        -- =img_org:clone();
+        local bbox
+        -- =bbox_org:clone();
+        img,bbox=self:scaleNegImageNew(img_org:clone(),bbox_org:clone());
+
+        local start_idx_x=1;
+        local start_idx_y=1;
+    
+        local end_idx_x=img:size(3)-params.crop_size[2];
+        local end_idx_y=img:size(2)-params.crop_size[1];
+
+        print ('start_idx_x,start_idx_y,end_idx_x,end_idx_y');
+        print (start_idx_x,start_idx_y,end_idx_x,end_idx_y);
+
+        local crop_boxes={};
+        for start_idx_x=1,end_idx_x do
+            for start_idx_y=1,end_idx_y do
+                local crop_box_curr={start_idx_x,start_idx_y,start_idx_x+params.crop_size[1],start_idx_y+params.crop_size[2]};
+                crop_boxes[#crop_boxes+1]=crop_box_curr;
+            end
+        end
+
+        print ('#crop_boxes',#crop_boxes);
+        local crop_box_pos={};
+        local crop_box_neg={};
+        for idx=1,#crop_boxes do
+            local crop_box=crop_boxes[idx];
+            if self:isValidNegativeNew(crop_box,bbox,params.max_dim,params.tolerance,params.tolerance_scale) then
+                crop_box_pos[#crop_box_pos+1]=crop_box;
+            else
+                crop_box_neg[#crop_box_neg+1]=crop_box;
+            end
+        end
+
+        print ('#crop_box_pos',#crop_box_pos);
+        print ('#crop_box_neg',#crop_box_neg);
+
+        -- local crop_box={};
+        -- local img;
+        -- local bbox;
+        -- local scale;
+        -- local counter=0;
+        -- local counter_lim=100;
+        -- local no_neg=false;
+
+        -- while 1 do
+        
+        --     img,bbox=self:scaleNegImageNew(img_org:clone(),bbox_org:clone());
+            
+        --     if counter>=counter_lim or img==-1 then
+        --         print 'NO NEG OUTER'
+        --         no_neg=true;
+        --         break;
+        --     end
+
+        --     -- get max starting point of crop
+        --     local x_max=img:size()[3]-params.crop_size[2];
+        --     local y_max=img:size()[2]-params.crop_size[1];
+            
+        --     if x_max>1 and y_max>1 then
+        --         -- create a valid crop box that does not violate any positive examples
+        --         local start_x;
+        --         local start_y;
+                
+                
+        --         start_x=torch.random(0,x_max-1);
+        --         start_y=torch.random(0,y_max-1);
+        --         local end_x=start_x+params.crop_size[2];
+        --         local end_y=start_y+params.crop_size[1];
+        --         crop_box={start_x,start_y,end_x,end_y};
+                
+        --         -- check if crop is valid negative
+        --         if self:isValidNegativeNew(crop_box,bbox,params.max_dim,params.tolerance,params.tolerance_scale) then
+        --             break;
+        --         end
+        --     end
+        --     counter=counter+1;
+        -- end
+
+        -- if no_neg then
+        --     crop_box=torch.Tensor({1,1,1,1})
+        -- end
+
+        return img,bbox,crop_box_pos,crop_box_neg
+    end  
+
+    function data:saveNegData()
+        local out_dir='/disk2/aprilExperiments/testing_neg_fixed_test/';
+        num_im=100;
+        for idx=1,1 do
+            -- num_im do
+            -- img,bbox,crop_box=self:getNegData(num_im,self.lines_negative,idx%(#self.lines_negative)+1,self.params)
+            img,bbox,crop_box_pos,crop_box_neg=self:getNegData(num_im,self.lines_negative,6,self.params)
+            -- print (crop_box,torch.Tensor(crop_box))
+            out_file_im=out_dir..idx..'.png';
+            out_file_bbox=out_dir..idx..'_bbox.npy';
+            out_file_crop=out_dir..idx..'_crop.npy';
+            
+            out_file_crop_pos=out_dir..idx..'_crop_pos.npy';
+            out_file_crop_neg=out_dir..idx..'_crop_neg.npy';
+            
+            image.save(out_file_im,img);
+            npy4th.savenpy(out_file_bbox,bbox);
+            -- npy4th.savenpy(out_file_crop,torch.Tensor(crop_box));
+
+            npy4th.savenpy(out_file_crop_pos,torch.Tensor(crop_box_pos));
+            npy4th.savenpy(out_file_crop_neg,torch.Tensor(crop_box_neg));
+            -- break;
+        end
+    end
+
+    function data:readNegData()
+        local out_dir='/disk2/aprilExperiments/testing_neg_fixed_complete/';
+        local idx=60;
+        local img_path=out_dir..idx..'.png';
+        local bbox_path=out_dir..idx..'_bbox.npy';
+        local crop_path=out_dir..idx..'_crop.npy';
+        local img=image.load(img_path);
+        local crop_box=npy4th.loadnpy(crop_path);
+        print (img_path,crop_box);
+        local bbox=npy4th.loadnpy(bbox_path);
+        isValid=self:isValidNegativeNew(crop_box,bbox,128,32,{0.5,2});
+        -- print ('final',isValid);
+    end
+
 end
 
 return data

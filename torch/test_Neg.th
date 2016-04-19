@@ -1,0 +1,30 @@
+require 'nn';
+require 'loadcaffe';
+require 'cutorch';
+require 'cunn';
+require 'optim'
+require 'hdf5'
+require 'image'
+require 'gnuplot'
+npy4th = require 'npy4th'
+require 'data_neg_new';
+
+td=data();
+td:getTrainingDataToyScore();
+print (td.training_set_score)
+out_dir='/disk2/aprilExperiments/testing_neg_torch/'
+
+for data_idx=1,td.training_set_score.data:size(1) do
+	local img_curr=td.training_set_score.data[data_idx];
+	-- print (data_idx);
+	-- print (img_curr:size());
+	print (data_idx,torch.min(img_curr),torch.max(img_curr));
+	for idx=1,img_curr:size(1) do
+		img_curr[idx]:add(td.params.mean[idx])
+	end
+	img_curr:div(255);
+	local out_file=out_dir..data_idx..'.png';
+	image.save(out_file,img_curr);
+end
+-- print (td.training_set_seg.data:size());
+
