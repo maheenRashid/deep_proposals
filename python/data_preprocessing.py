@@ -8,7 +8,8 @@ import matplotlib.pyplot as plt;
 import multiprocessing;
 import glob;
 import util;
-
+import cv2;
+import scipy.io;
 def addLeadingZeros(id_no,im_pre=None,im_post=None,num_digits_total=12):
     if im_pre is None:
         im_pre='';
@@ -160,6 +161,32 @@ def saveMaskAndCrop((im_path,seg,max_dim_size,total_size,out_file_im,out_file_ma
     # return seg;
 
 
+def saveFlowCrop((im_np,seg,max_dim_size,total_size,out_file_flo)):
+    print out_file_flo
+    im_np=np.load(im_np);
+    try:
+        new_size,pad_req,seg,crop_bb=scaleValues(seg,list((im_np.shape[1],im_np.shape[0])),max_dim_size,total_size);
+    except AssertionError:
+        print 'assertion error'
+        return;
+    print new_size
+    im_np=cv2.resize(im_np,tuple(new_size));
+    #pad it
+    if sum(pad_req)!=0:
+        to_pad=[(pad_req[1],pad_req[3]),(pad_req[0],pad_req[2])]
+        if len(im_np.shape)>2:
+            to_pad.append((0,0));
+        im_np=np.pad(im_np,tuple(to_pad),'edge');
+    #crop it
+    if len(im_np.shape)>2:
+        im_np=im_np[crop_bb[1]:crop_bb[3],crop_bb[0]:crop_bb[2],:]
+    else:
+        im_np=im_np[crop_bb[1]:crop_bb[3],crop_bb[0]:crop_bb[2]]
+    #save it
+    np.save(out_file_flo,im_np);
+    
+
+
 def genArgs(anno,im_pre,out_dir,max_dim_size,total_size,im_post='.png',mask_post='_mask.png'):
     args=[];
     for idx_curr_anno,curr_anno in enumerate(anno):
@@ -282,6 +309,84 @@ def main():
 
 
 
+    dir_meta='/disk2/aprilExperiments/deep_proposals/flow_neg/';
+    path_to_anno='/disk2/ms_coco/annotations/instances_train2014.json';
+    path_to_pos='/disk2/februaryExperiments/deep_proposals/positives'
+    dir_neg = os.path.join(dir_meta,'results');
+    out_file_rec = os.path.join(dir_meta,'ims_to_analyze.npz')
+
+    dir_flo=os.path.join(dir_meta,'flo_subset_for_pos');
+    dir_out_flo=os.path.join(dir_meta,'flo_subset_for_pos_cropped');
+    
+    out_file_text=os.path.join(dir_out_flo,'files_for_mat.txt');
+
+    util.mkdir(dir_out_flo);
+
+    files=[file_curr for file_curr in os.listdir(dir_out_flo) if file_curr.endswith('.npy')];
+    lines=[];
+    for file_curr in files:
+
+        # arr=np.load(file_curr);
+        # print arr.shape
+        out_file_curr=file_curr.replace('.npy','.mat');
+        line_curr=os.path.join(path_to_pos,file_curr.replace('.npy','.png'))+' '+os.path.join(dir_out_flo,out_file_curr)+' '+os.path.join(dir_out_flo,out_file_curr.replace('.mat','.png'));
+        lines.append(line_curr);
+        # print line_curr;
+        # print out_file_curr;
+        # scipy.io.savemat(out_file_curr,{'N':arr});
+        # break;
+
+    util.writeFile(out_file_text,lines);
+    print out_file_text
+    return
+    max_dim_size=128;
+    total_size=240;
+
+
+
+    arrs = np.load(out_file_rec);
+    negs = arrs['negs'];
+    pos = arrs['pos'];
+    pos_idx_all = [];
+    for idx_pos_file,pos_file in enumerate(pos):
+        pos_idx = int(pos_file[pos_file.rindex('_')+1:pos_file.index('.')]);
+        pos_idx_all.append(pos_idx);
+        # print pos_file,pos_idx
+    
+    anno=json.load(open(path_to_anno,'rb'))['annotations'];
+    for idx_pos,pos_idx in enumerate(pos_idx_all):
+        print idx_pos,pos_idx
+        # print anno[pos_idx]
+        if anno[pos_idx]['iscrowd']!=0:
+            print 'continuing';
+            continue;
+        seg_all = anno[pos_idx]['segmentation'];
+        # break;
+        # pickle.dump(seg_all,open('/disk2/seg.p','wb'))
+        # print seg_all
+
+        # seg_all=0;
+        in_flo=negs[idx_pos];
+        flo_name=in_flo[in_flo.rindex('/')+1:in_flo.rindex('.')]
+        in_flo=os.path.join(dir_flo,flo_name+'.npy');
+        out_flo=os.path.join(dir_out_flo,flo_name+'_'+str(pos_idx)+'.npy');
+        print out_flo;
+        
+        saveFlowCrop((in_flo,seg_all,max_dim_size,total_size,out_flo))
+    # break;
+    
+    # for idx_curr_anno,curr_anno in enumerate(anno):
+    #     if curr_anno['iscrowd']==0:
+    #         id_no=curr_anno['image_id'];
+    #         seg_all=curr_anno['segmentation'];
+    #         im_path=addLeadingZeros(id_no,im_pre,'.jpg');
+    
+
+
+
+
+
+    return
     in_file_pos='/disk2/aprilExperiments/dual_flow/onlyHuman_all_xavier/negatives.txt';
 
     out_file_pos='/disk2/aprilExperiments/dual_flow/onlyHuman_all_xavier/negatives_debug.txt';
@@ -470,7 +575,27 @@ def main():
     pickle.dump(seg,open(os.path.join(out_dir,'seg.p'),'wb'));
 
 
+    return
+        # 'COCO_train2014_000000225987_317142'
+    path_to_anno='/disk2/ms_coco/annotations/instances_train2014.json';
+    max_dim_size=128;
+    total_size=240;
     
+    path_to_data='/disk2/ms_coco/train2014'
+    path_to_pos='/disk2/februaryExperiments/deep_proposals/positives'
+
+    img_org=os.path.join(path_to_data,'COCO_train2014_000000225987.jpg');
+    img_out=os.path.join(path_to_pos,'COCO_train2014_000000225987_317142.png');
+
+    anno=json.load(open(path_to_anno,'rb'))['annotations'];
+    pos_idx=317142
+    print anno[pos_idx]
+    seg_all = anno[pos_idx]['segmentation'];
+
+    saveMaskAndCrop((img_org,seg_all,max_dim_size,total_size,img_out,'/disk2/temp/dummy.png'))
+
+    return
+
     
 if __name__=='__main__':
     main();

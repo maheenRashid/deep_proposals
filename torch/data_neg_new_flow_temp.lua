@@ -31,15 +31,15 @@ do
 
         self.training_set_seg={};
         self.training_set_score={};
-        if self.includeFlow then
+        -- if self.includeFlow then
             self.lines_seg=self:readDataFileFlow(self.file_path_positive);
             self.lines_positive=self:readDataFileFlow(self.file_path_positive);
             self.lines_negative=self:readDataFileFlow(self.file_path_negative);
-        else
-            self.lines_seg=self:readDataFile(self.file_path_positive);
-            self.lines_positive=self:readDataFile(self.file_path_positive);
-            self.lines_negative=self:readDataFile(self.file_path_negative);    
-        end        
+        -- else
+        --     self.lines_seg=self:readDataFile(self.file_path_positive);
+        --     self.lines_positive=self:readDataFile(self.file_path_positive);
+        --     self.lines_negative=self:readDataFile(self.file_path_negative);    
+        -- end        
 
         -- self.lines_seg=self:shuffleLines(self.lines_seg);
         -- self.lines_positive=self:shuffleLines(self.lines_positive);
@@ -49,6 +49,7 @@ do
         print (#self.lines_positive);
         print (#self.lines_negative);
         print (self.lines_seg[1]);
+        print (self.lines_negative[1]);
     end
 
 
@@ -146,20 +147,20 @@ do
             local img_path=string.sub(line,1,start_idx-1);
             local string_temp=string.sub(line,end_idx+1,#line);
             
-            local img_path;
-            local flow_path;
-            if not self.includeFlow then
-                img_label=string_temp;
-                flow_path=string_temp;
+            -- local img_path;
+            -- local flow_path;
+            -- if not self.includeFlow then
+            --     img_label=string_temp;
+            --     flow_path=string_temp;
 
-            else
+            -- else
             -- print (string_temp)
 
                 local start_idx, end_idx = string.find(string_temp, ' ');
 
                 img_label=string.sub(string_temp,1,start_idx-1);
                 flow_path=string.sub(string_temp,end_idx+1,#string_temp);
-            end
+            -- end
 
             file_lines[#file_lines+1]={img_path,img_label,flow_path};
 

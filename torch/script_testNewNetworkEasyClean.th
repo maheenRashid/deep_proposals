@@ -1,0 +1,165 @@
+
+require 'nn';
+require 'loadcaffe';
+require 'cutorch';
+require 'cunn';
+require 'optim'
+require 'hdf5'
+require 'image'
+require 'gnuplot'
+npy4th = require 'npy4th'
+require 'data_neg_new_flow_temp';
+
+
+
+-- network_file='/disk2/februaryExperiments/deep_proposals/model_no_interleaving_chunks.dat';
+-- network_file='/disk2/marchExperiments/deep_proposals/training_3_28_2/final/model_ni_all_25000.dat';
+-- img_dir='/disk2/marchExperiments/deep_proposals/testing_3_28_2/images';
+
+-- network_file='/disk2/marchExperiments/deep_proposals/new_design/training_100/final/model_all_final.dat';
+-- img_dir='/disk2/marchExperiments/deep_proposals/new_design/training_100/images';
+
+-- network_file='/disk2/marchExperiments/deep_proposals/new_design/training_human/final/model_all_final.dat';
+-- img_dir='/disk2/marchExperiments/deep_proposals/new_design/training_human/images';
+-- img_dir='/disk2/aprilExperiments/dual_flow/onlyHuman/images_old'
+-- dual_input=false
+
+
+-- network_file='/disk2/aprilExperiments/dual_flow/onlyHuman/final/model_all_final.dat';
+-- img_dir='/disk2/aprilExperiments/dual_flow/onlyHuman/images';
+-- dual_input=true;
+
+-- network_file='/disk2/aprilExperiments/dual_flow/onlyHuman_all_gaussian_baseline/intermediate/model_all_24000.dat';
+-- img_dir='/disk2/aprilExperiments/dual_flow/onlyHuman_all_gaussian_baseline/images_test';
+-- dual_input=false;
+
+network_file='/disk2/aprilExperiments/dual_flow/onlyHuman_all_xavier/intermediate_llr/model_all_22000.dat';
+img_dir='/disk2/aprilExperiments/dual_flow/onlyHuman_all_xavier/images_test';
+dual_input=true;
+
+pre_input_image_org=img_dir..'/img';
+pre_gt_mask_org=img_dir..'/pred_mask';
+
+local neg_file = '/disk2/aprilExperiments/dual_flow/onlyHuman_all_xavier/negatives.txt'
+local pos_file = '/disk2/aprilExperiments/dual_flow/onlyHuman_all_xavier/positives.txt'
+td = data({file_path_positive=pos_file,file_path_negative=neg_file,includeFlow=true});
+-- td:getTrainingDataToyScore();
+
+-- for i=1,td.training_set_score.data:size(1) do
+-- 	print (torch.min(td.training_set_score.data[i]),torch.min(td.training_set_score.label[i]),torch.min(td.training_set_score.data_flow[i]))
+-- end
+
+
+-- pre_input_image_org_old=img_dir_old..'/img';
+-- pre_gt_mask_org_old=img_dir_old..'/pred_mask';
+
+-- load network file
+print ('loading network')
+net = torch.load(network_file);
+print ('done loading');
+
+net=net:cuda();
+print ('done loading');
+	
+-- print ('loading network')
+-- net_old = torch.load(network_file_old);
+-- print ('done loading');
+
+
+-- read in data
+
+-- td = data();
+
+td.batch_size_positive_score=20;
+td.batch_size_negative_score=20;
+
+for batch_no=1,5 do 
+	print ('BATCH_NO',batch_no)
+	td:getTrainingDataToyScore();    
+
+	pre_input_image = pre_input_image_org..'_'..batch_no;
+	pre_gt_mask = pre_gt_mask_org..'_'..batch_no;
+
+
+	-- propogate the data through the 
+
+	print ('forwarding');
+	td.training_set_score.data=td.training_set_score.data
+	-- :cuda();
+    td.training_set_score.data_flow=td.training_set_score.data_flow
+    -- :cuda();
+    if dual_input then
+	   outputs=net:forward({td.training_set_score.data,td.training_set_score.data_flow});
+    else
+        outputs=net:forward(td.training_set_score.data);
+    end
+	print (outputs)
+    
+	local scores=outputs[1];
+	local gt_scores=td.training_set_score.label;
+    
+	local masks= outputs[2];
+
+	for idx_mask=1,masks:size(1) do
+
+		local gt_score=gt_scores[idx_mask][1];
+		local pred_score=scores[idx_mask][1];
+
+        local file_out_curr_scores=pre_input_image..'_'..idx_mask..'.npy';
+        npy4th.savenpy(file_out_curr_scores, torch.Tensor({gt_score,pred_score}))
+
+		local file_out_curr_im=pre_input_image..'_'..idx_mask
+		local file_out_curr_mask=pre_gt_mask..'_'..idx_mask
+
+		if (gt_score)>0 then
+			file_out_curr_im=file_out_curr_im..'_pos';
+			file_out_curr_mask=file_out_curr_mask..'_pos';
+		else
+			file_out_curr_im=file_out_curr_im..'_neg';
+			file_out_curr_mask=file_out_curr_mask..'_neg';
+		end
+
+		if (gt_score*pred_score)>=0 then
+			file_out_curr_im=file_out_curr_im..'_correct';
+			file_out_curr_mask=file_out_curr_mask..'_correct';
+		else
+			file_out_curr_im=file_out_curr_im..'_incorrect';
+			file_out_curr_mask=file_out_curr_mask..'_incorrect';
+		end
+		file_out_curr_im=file_out_curr_im..'.png'
+		file_out_curr_mask=file_out_curr_mask..'.png'
+
+		local mask_curr=masks[idx_mask];
+
+		-- print (torch.min(mask_curr),torch.max(mask_curr));
+		mask_curr=mask_curr:add(math.abs(torch.min(mask_curr)));
+		-- print (torch.min(mask_curr),torch.max(mask_curr));
+		mask_curr=mask_curr:div(torch.max(mask_curr));
+		-- print (torch.min(mask_curr),torch.max(mask_curr));
+		mask_curr= torch.cat(mask_curr,mask_curr,1):cat(mask_curr,1)
+		-- print (file_out_curr_mask,idx_mask)
+		-- print (mask_curr:size());
+		image.save(file_out_curr_mask,mask_curr);
+
+		local img_curr=td.training_set_score.data[idx_mask];
+		
+		-- add mean
+		for i=1,img_curr:size()[1] do
+	        img_curr[i]:add(td.params.mean[i])
+	    end
+	        
+		-- scale 
+		-- print (torch.min(img_curr),torch.max(img_curr));
+		img_curr=img_curr:add(math.abs(torch.min(img_curr)));
+		-- print (torch.min(img_curr),torch.max(img_curr));
+		img_curr=img_curr:div(torch.max(img_curr));
+		-- print (torch.min(img_curr),torch.max(img_curr));
+		image.save(file_out_curr_im,img_curr);	
+
+	end
+
+
+end
+
+
+

@@ -19,6 +19,10 @@ function makeMyNetwork(torch_file,method_init)
 	local seq_trunk = nn.Sequential();
     seq_trunk:add(nn.SpatialConvolution(512,512,1,1));
 	seq_trunk:add(nn.SpatialConvolution(512,128,5,5));
+    seq_trunk:add(nn.View(128*10*10));
+    seq_trunk:add(nn.Linear(128*10*10,512));
+
+
     for idx=1,#seq_trunk do
         if seq_trunk:get(idx).weight then
             seq_trunk:get(idx).weight=torch.randn(seq_trunk:get(idx).weight:size()):div(100);
@@ -31,8 +35,6 @@ function makeMyNetwork(torch_file,method_init)
 	seq:add(seq_trunk);
 
 	local score_branch=nn.Sequential();
-	score_branch:add(nn.View(128*10*10));
-	score_branch:add(nn.Linear(128*10*10,512));
 	score_branch:add(nn.ReLU());
 	score_branch:add(nn.Dropout(0.5));
 	score_branch:add(nn.Linear(512,1024));
@@ -50,8 +52,6 @@ function makeMyNetwork(torch_file,method_init)
     end
 
 	local seg_branch=nn.Sequential();
-	seg_branch:add(nn.View(128*10*10));
-	seg_branch:add(nn.Linear(128*10*10,512));
 	seg_branch:add(nn.Linear(512,56*56));
 	seg_branch:add(nn.View(1,56,56));
 	seg_branch:add(nn.SpatialUpSamplingNearest(4));
@@ -126,16 +126,30 @@ function getLossScoreD(x_score,gt_label)
 end
 
 
-local torch_file='/disk2/januaryExperiments/vgg_16/vgg16_onlyConv.dat';
--- local deep_prop_file='/disk2/aprilExperiments/dual_flow/followup_single_model_gaussian.dat'
-local deep_prop_file='/disk2/aprilExperiments/dual_flow/all_objects_gaussian_baseline/intermediate_resume/model_all_25000.dat';
+-- local torch_file='/disk2/januaryExperiments/vgg_16/vgg16_onlyConv.dat';
+local deep_prop_file='/disk2/aprilExperiments/dual_flow/followup_single_model_gaussian_head_c.dat'
+-- local deep_prop_file='/disk2/aprilExperiments/dual_flow/all_objects_gaussian_baseline_head_c/intermediate_resume/model_all_25000.dat';
 
 -- net=makeMyNetwork(torch_file);
 -- print( net);
 -- torch.save(deep_prop_file,net);
 
-local out_dir_intermediate='/disk2/aprilExperiments/dual_flow/all_objects_gaussian_baseline/intermediate_resume_1';
-local out_dir_final='/disk2/aprilExperiments/dual_flow/all_objects_gaussian_baseline/final';
+-- net=torch.load(deep_prop_file);
+-- print( net);
+-- input=torch.zeros(torch.LongStorage{1,3,224,224});
+-- print (input:size())
+-- out=net:get(1):forward(input);
+-- print (out:size())
+-- out=net:get(2):forward(out);
+-- for idx=1,4 do
+--     print(idx);
+--     print (net:get(1):get(2):get(idx));
+--     print(net:get(1):get(2):get(idx).output:size())
+-- end
+-- print (out)
+
+local out_dir_intermediate='/disk2/aprilExperiments/dual_flow/all_objects_gaussian_baseline_head_c/intermediate';
+local out_dir_final='/disk2/aprilExperiments/dual_flow/all_objects_gaussian_baseline_head_c/final';
 
 -- local out_dir_intermediate='/disk2/aprilExperiments/dual_flow/onlyHuman_debug/intermediate';
 -- local out_dir_final='/disk2/aprilExperiments/dual_flow/onlyHuman_debug/final';
@@ -178,10 +192,10 @@ local opt = {}
 opt.optimization = 'sgd'
 
 opt.batch_size=32;
-opt.learningRate=0.000001;
+opt.learningRate=0.0001;
 opt.momentum=0.9
 opt.weightDecay=0.00005;
-opt.iterations=30000;
+opt.iterations=50000;
 opt.saveAfter=5000;
 opt.plotAfter=50;
 opt.dispAfter=4;
@@ -204,7 +218,7 @@ print ('loading network');
 
 net = torch.load(deep_prop_file);
 -- net:get(2):get(2):add(nn.Tanh())
-print (torch.min(net:get(2):get(2):get(3).weight),torch.max(net:get(2):get(2):get(3).weight));
+print (torch.min(net:get(1):get(2):get(4).weight),torch.min(net:get(1):get(2):get(4).weight));
 
 print ('done loading network');
 -- print (net:get(1));

@@ -141,7 +141,8 @@ end
 
 
 local torch_file='/disk2/januaryExperiments/vgg_16/vgg16_onlyConv.dat';
-local deep_prop_file='/disk2/aprilExperiments/dual_flow/followup_dual_model_xavier.dat'
+-- local deep_prop_file='/disk2/aprilExperiments/dual_flow/followup_dual_model_xavier.dat'
+local deep_prop_file='/disk2/aprilExperiments/dual_flow/onlyHuman_all_xavier/intermediate/model_all_8000.dat';
 
 -- net=makeMyNetwork(torch_file,'xavier');
 -- print( net);
@@ -149,7 +150,7 @@ local deep_prop_file='/disk2/aprilExperiments/dual_flow/followup_dual_model_xavi
 
 -- '/disk2/marchExperiments/deep_proposals/new_design/model_untrained.dat'
 
-local out_dir_intermediate='/disk2/aprilExperiments/dual_flow/onlyHuman_all_xavier/intermediate';
+local out_dir_intermediate='/disk2/aprilExperiments/dual_flow/onlyHuman_all_xavier/intermediate_llr';
 local out_dir_final='/disk2/aprilExperiments/dual_flow/onlyHuman_all_xavier/final';
 
 -- local out_dir_intermediate='/disk2/aprilExperiments/dual_flow/onlyHuman_debug/intermediate';
@@ -183,13 +184,23 @@ local neg_file='/disk2/aprilExperiments/dual_flow/onlyHuman_all_xavier/negatives
 -- td=data({file_path_positive=pos_file,file_path_negative=neg_file});
 -- td:getTrainingDataToyScore();
 -- td:getTrainingDataToy();
+-- for i=1,td.training_set_seg.data:size(1) do
+--     -- print (td.training_set_seg.data:size())
+--     print (i,torch.min(td.training_set_seg.data[i]),torch.max(td.training_set_seg.data[i]),torch.min(td.training_set_seg.data_flow[i]),torch.max(td.training_set_seg.data_flow[i]))
+-- end
+-- for i=1,td.training_set_score.data:size(1) do
+--     -- print (td.training_set_score.data:size())
+--     print (i,torch.min(td.training_set_score.data[i]),torch.max(td.training_set_score.data[i]),torch.min(td.training_set_score.data_flow[i]),torch.max(td.training_set_score.data_flow[i]))
+-- end
+-- print (td.includeFlow)
+
 
 
 local opt = {}         
 opt.optimization = 'sgd'
 
 opt.batch_size=32;
-opt.learningRate=0.0001;
+opt.learningRate=0.000001;
 opt.momentum=0.9
 opt.weightDecay=0.00005;
 opt.iterations=50000;
@@ -207,7 +218,7 @@ optimState = {
     weightDecay = opt.weightDecay,
     momentum = opt.momentum,
 }
-
+print (optimState)
 optimMethod = optim.sgd
 
 
