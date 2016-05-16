@@ -2,6 +2,46 @@ import numpy as np;
 import scipy
 import subprocess;
 import os;
+
+def writeFlowFile(arr,file_name):
+    with open(file_name, 'wb') as f:
+        magic=np.float32(202021.25);
+        f.write(magic)
+        w=np.int32(arr.shape[1])
+        h=np.int32(arr.shape[0])
+        f.write(np.int32(w));
+        f.write(np.int32(h));
+        for val in arr.ravel():
+            f.write(np.float32(val));
+
+
+
+def getStartingFiles(dir_curr,img_name):
+    files=[file_curr for file_curr in os.listdir(dir_curr) if file_curr.startswith(img_name)];
+    return files;
+
+def getEndingFiles(dir_curr,img_name):
+    files=[file_curr for file_curr in os.listdir(dir_curr) if file_curr.endswith(img_name)];
+    return files;
+
+
+def getFileNames(file_paths,ext=True):
+    just_files=[file_curr[file_curr.rindex('/')+1:] for file_curr in file_paths];
+    file_names=[];
+    if ext:
+        file_names=just_files;
+    else:
+        file_names=[file_curr[:file_curr.rindex('.')] for file_curr in just_files];
+    return file_names;
+
+
+def getRelPath(file_curr,replace_str='/disk2'):
+    count=file_curr.count('/');
+    str_replace='../'*count
+    rel_str=file_curr.replace(replace_str,str_replace);
+    return rel_str;
+
+
 def mkdir(dir_curr):
     if not os.path.exists(dir_curr):
         os.mkdir(dir_curr);
@@ -100,4 +140,7 @@ def getAllSubDirectories(meta_dir):
     sub_dirs=[dir_curr for dir_curr in sub_dirs if dir_curr];
     return sub_dirs
     
-        
+   
+def getFilesInFolder(folder,ext):
+    list_files=[os.path.join(folder,file_curr) for file_curr in os.listdir(folder) if file_curr.endswith(ext)];
+    return list_files;     

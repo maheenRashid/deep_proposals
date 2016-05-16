@@ -3,13 +3,14 @@ import numpy as np;
 import json;
 import os;
 from PIL import Image, ImageDraw
-import cPickle as pickle;
-import matplotlib.pyplot as plt;
+# import cPickle as pickle;
+# import matplotlib.pyplot as plt;
 import multiprocessing;
-import glob;
+# import glob;
 import util;
-import cv2;
-import scipy.io;
+# import cv2;
+# import scipy.io;
+import visualize;
 def addLeadingZeros(id_no,im_pre=None,im_post=None,num_digits_total=12):
     if im_pre is None:
         im_pre='';
@@ -307,7 +308,64 @@ def script_saveBboxFiles(anno,out_dir,im_pre):
 
 def main():
 
+    path_to_anno='/disk2/ms_coco/annotations';
+    out_dir='/disk2/mayExperiments/validation_anno';
+    util.mkdir(out_dir);
+    path_to_im='/disk2/ms_coco/val2014';
+    im_pre='COCO_val2014_';
 
+    train_anno=os.path.join(path_to_anno,'instances_val2014.json');
+    anno=json.load(open(train_anno,'rb'))['annotations']
+    print len(anno);
+    script_saveBboxFiles(anno,out_dir,im_pre);
+    
+    return
+
+    # visualize.writeHTMLForFolder('/disk2/aprilExperiments/headC_160/checking_data',ext='.png');
+
+    # return
+    out_file_text='/disk2/aprilExperiments/positives_160.txt';
+    out_dir='/disk2/aprilExperiments/positives_160';
+    
+    post_fix='_mask.png';
+
+    files=[os.path.join(out_dir,file_curr) for file_curr in os.listdir(out_dir) if file_curr.endswith(post_fix)];
+    print len(files);
+    lines=[];
+    for file_curr in files:
+        im_file=file_curr[:file_curr.rindex('_')]+'.png';
+        line=im_file+' '+file_curr;
+        lines.append(line);
+    util.writeFile(out_file_text,lines);
+
+    return
+
+    path_to_im='/disk2/ms_coco/train2014';
+    im_pre='COCO_train2014_';
+
+    path_to_anno='/disk2/ms_coco/annotations';
+    train_anno=os.path.join(path_to_anno,'instances_train2014.json');
+
+    # out_dir='/disk2/positives_160';
+    # if not os.path.exists(out_dir):
+    #     os.mkdir(out_dir);
+
+    max_dim_size=96;
+    total_size=192;
+    
+    anno=json.load(open(train_anno,'rb'))['annotations']
+    print len(anno);
+
+    # args=genArgs(anno,os.path.join(path_to_im,im_pre),out_dir,max_dim_size,total_size);
+    # print len(args);
+    # saveMaskAndCrop(args[0]);
+
+    # p=multiprocessing.Pool(multiprocessing.cpu_count());
+    # p.map(saveMaskAndCrop,genArgs(anno,os.path.join(path_to_im,im_pre),out_dir,max_dim_size,total_size))
+    
+
+
+    return
 
     dir_meta='/disk2/aprilExperiments/deep_proposals/flow_neg/';
     path_to_anno='/disk2/ms_coco/annotations/instances_train2014.json';

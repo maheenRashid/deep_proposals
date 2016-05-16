@@ -3,6 +3,7 @@ import numpy as np;
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt;
 import os;
+from PIL import Image,ImageDraw;
 
 def writeHTML(file_name,im_paths,captions,height=200,width=200):
     f=open(file_name,'w');
@@ -231,6 +232,25 @@ def plotGroupBar(out_file,dict_vals,xtick_labels,legend_vals,colors,xlabel='',yl
     plt.savefig(out_file, bbox_inches='tight');
     plt.close();  
 
+def plotBBox(img_path,bboxes,out_file,colors=None):
+    if type(img_path)==type('str'):
+        im=Image.open(img_path);
+    else:
+        im=Image.fromarray(img_path)
+        
+    draw = ImageDraw.Draw(im)
+    
+    for idx_bbox,bbox in enumerate(bboxes):
+        bbox_curr=[bbox[1],bbox[0],bbox[3],bbox[2]];
+        # print bbox_curr
+        if colors is None:
+            color_curr=(255,255,255);
+        elif type(colors)==type((1,2)):
+            color_curr=colors;
+        else:
+            color_curr=colors[idx_bbox]
+        draw.rectangle([int(val) for val in bbox_curr],outline=color_curr);
+    im.save(out_file);
 
 
 def main():

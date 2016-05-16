@@ -1,0 +1,82 @@
+require 'nn';
+require 'cutorch';
+require 'cunn';
+npy4th = require 'npy4th'
+
+
+
+function getTightBbox(segMasks,thresh):
+	bbox_tight=torch.Tensor(torch.LongStorage({segMasks:size(1),4}));
+	for idx=1,segMasks:size(1):
+		bin_mask=segMasks[idx];
+		bin_mask[bin_mask:lt(thresh)] = 0;
+		bin_mask[bin_mask:ge(thresh)] = 1;
+		index_all=torch.nonzero(bin_mask)
+		print (index_all:size());
+		break
+		-- bbox_tight[idx]=[torch.min(index_all
+
+
+file_name='/disk3/maheen_data/headC_160_noFlow/4/COCO_val2014_000000041837_seg.npy'
+seg_mask=npy4th.loadnpy(file_name);
+print (seg_mask:size());
+
+thresh=0.2;
+
+-- seg_mask_bin=torch.zeros(seg_mask:size());
+-- seg_mask_bin[seg_mask:ge(thresh)]=1;
+-- -- seg_mask_bin=seg_mask_bin:binary();
+-- out_file='/disk2/temp/seg_binary.b';
+-- torch.save(out_file, seg_mask_bin ,binary)
+
+
+getTightBbox(seg_mask,thresh);
+
+-- seg_mask_curr=seg_mask[1];
+-- print (seg_mask_curr:size());
+
+-- bin_mask=seg_mask_curr:clone();
+-- -- bin_mask[bin_mask:geq(thresh)]=1;
+-- -- 
+
+-- -- bin_mask[bin_mask:leq(thresh)]=0;
+-- bin_mask[bin_mask:lt(thresh)] = 0;
+-- bin_mask[bin_mask:ge(thresh)] = 1;
+
+
+-- print (bin_mask:size());
+
+
+
+
+
+
+-- local x = os.clock()
+-- index_all=torch.nonzero(bin_mask)
+-- -- index_all={}
+-- -- for r=1,bin_mask:size(1) do
+-- -- 	for c=1,bin_mask:size(2) do
+-- -- 		if bin_mask[r][c]>=thresh then
+-- -- 			index_all[#index_all+1]={r,c};
+-- -- 		end
+-- -- 	end
+-- -- end
+
+-- print(string.format("elapsed time: %.2f\n", os.clock() - x))
+
+-- print (index_all:size())
+
+-- bin_mask_shift=torch.zeros(bin_mask:size());
+-- bin_mask_small=bin_mask[{{2,bin_mask:size(1)},{2,bin_mask:size(2)}}];
+-- bin_mask_shift[{{1,bin_mask_small:size(1)},{1,bin_mask_small:size(2)}}]=bin_mask_small;
+
+-- print (bin_mask_small:size())
+-- print (bin_mask_shift:size())
+
+-- diff=torch.bin_mask_shiftbin_mask;
+-- diff=torch.abs(bin_mask_shift:csub(bin_mask))
+-- index_border=torch.nonzero(diff);
+-- print (index_border:size());
+
+-- out_file_border='/disk2/temp/border.npy'
+-- npy4th.savenpy(out_file_border,index_border);

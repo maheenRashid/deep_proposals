@@ -1,0 +1,199 @@
+require 'nn';
+require 'cutorch';
+require 'cunn';
+npy4th = require 'npy4th'
+
+function preprocessImage(img,mean)
+	if img:size()[1]==1 then
+    	img= torch.cat(img,img,1):cat(img,1)
+	end
+	img:mul(255);
+	for i=1,img:size()[1] do
+	    img[i]:csub(mean[i])
+	end
+	return img
+end
+
+function breakUpNetwork(network_file,out_dir_test)
+	local net=torch.load(network_file);
+	print 'done loading'
+	-- net=net:cuda();
+	-- print (net);
+	local net_conv=net:get(1);
+	local fc_trunk=net_conv:get(2):get(3);
+	-- print (fc_trunk)
+	net_conv:get(2):remove(2);
+	net_conv:get(2):remove(2);
+	-- print (net_conv);
+	torch.save(paths.concat(out_dir_test,'net_conv.dat'),net_conv)
+	torch.save(paths.concat(out_dir_test,'fc_trunk.dat'),fc_trunk);
+end
+
+
+function saveConvTrunk(network_file,out_dir_test)
+	net=torch.load(network_file);
+	trunk=net:get(1);
+	fc=net:get(1):get(2):get(3);
+	net:get(1):get(2):remove(2);
+	net:get(1):get(2):remove(2);
+	fc_conv=nn.SpatialConvolution(128,512,10,10,1,1,5,5)
+	fc_conv=fc_conv:cuda()
+	new_w=torch.view(fc.weight,torch.LongStorage({512,128,10,10}));
+	fc_conv.weight=new_w:clone();
+	fc_conv.bias=fc.bias:clone();
+	net:get(1):get(2):add(fc_conv);
+	print (net)
+	torch.save(paths.concat(out_dir_test,'net_full_conv_trunk.dat'),net);
+end
+
+
+function saveScoreOnlyNetwork(network_file,out_file)
+	net=torch.load(network_file);
+	trunk=net:get(1);
+	fc=net:get(1):get(2):get(3);
+	net:get(1):get(2):remove(2);
+	net:get(1):get(2):remove(2);
+	fc_conv=nn.SpatialConvolution(128,512,10,10,1,1,5,5)
+	fc_conv=fc_conv:cuda()
+	new_w=torch.view(fc.weight,torch.LongStorage({512,128,10,10}));
+	fc_conv.weight=new_w:clone();
+	fc_conv.bias=fc.bias:clone();
+	net:get(1):get(2):add(fc_conv);
+	
+	-- net:get(2):remove(2);
+	score_branch=net:get(2):get(1);
+	net:remove(2);
+	net:add(score_branch);
+	print (net);
+
+	fc_1=net:get(2):get(1);
+	fc_1_conv=nn.SpatialConvolution(512,1024,1,1);
+	new_w=torch.view(fc_1.weight,torch.LongStorage({1024,512,1,1}));
+	fc_1_conv.weight=new_w:clone();
+	fc_1_conv.bias=fc_1.bias:clone();
+
+	fc_2=net:get(2):get(4);
+	fc_2_conv=nn.SpatialConvolution(1024,1,1,1);
+	new_w=torch.view(fc_2.weight,torch.LongStorage({1,1024,1,1}));
+	fc_2_conv.weight=new_w:clone();
+	fc_2_conv.bias=fc_2.bias:clone();
+
+	print (net:get(2))
+
+	net:get(2):remove(4);
+	net:get(2):remove(1);
+	net:get(2):insert(fc_1_conv,1);
+	net:get(2):add(fc_2_conv);
+
+	print (net)
+	torch.save(out_file,net);
+	
+end
+
+
+function readDataFile(file_path)
+	local file_lines = {};
+    for line in io.lines(file_path) do 
+        file_lines[#file_lines+1]=line;
+    end 
+    return file_lines
+
+end
+
+function saveSegOnlyNetwork(network_file,out_file)
+	net=torch.load(network_file);
+	seg_branch=net:get(2):get(2);
+	torch.save(out_file,seg_branch);
+	
+end
+
+
+out_dir_test='/disk2/aprilExperiments/headC_160/figuring_test';
+out_dir_im='/disk2/aprilExperiments/headC_160/figuring_test/im_pred_score';
+paths.mkdir(out_dir_test);
+paths.mkdir(out_dir_im);
+
+out_dir='/disk2/aprilExperiments/headC_160/noFlow_gaussian_all/';
+-- network_file=paths.concat(out_dir,'final/model_all_final.dat');
+-- network_file='/disk2/aprilExperiments/headC_160/noFlow_gaussian_all_actual/intermediate/model_all_25000.dat'
+-- network_out_file='/disk2/aprilExperiments/headC_160/noFlow_gaussian_all_actual/intermediate/model_all_25000_score.dat'
+-- network_seg_file='/disk2/aprilExperiments/headC_160/noFlow_gaussian_all_actual/intermediate/model_all_25000_seg.dat'
+
+
+
+network_file='/disk2/aprilExperiments/headC_160/noFlow_gaussian_all_actual/intermediate_resume/model_all_5000.dat'
+network_score_file='/disk2/aprilExperiments/headC_160/noFlow_gaussian_all_actual/intermediate_resume/model_all_5000_score.dat'
+network_seg_file='/disk2/aprilExperiments/headC_160/noFlow_gaussian_all_actual/intermediate_resume/model_all_5000_seg.dat'
+
+-- saveSegOnlyNetwork(network_file,network_seg_file)
+-- saveScoreOnlyNetwork(network_file,network_score_file)
+
+test_file='/disk2/aprilExperiments/headC_160/noFlow_gaussian_all_actual/test.txt';
+out_dir_score='/disk2/aprilExperiments/headC_160/noFlow_gaussian_all_actual/model_all_30000_res';
+paths.mkdir(out_dir_score);
+
+mean={122,117,104}
+thresh=0;
+
+net=torch.load(network_score_file);
+net=net:cuda();
+net:evaluate();
+
+net_seg=torch.load(network_seg_file);
+net_seg=net_seg:cuda();
+net_seg:evaluate();
+
+img_paths=readDataFile(test_file);
+
+for img_idx=21,100 do
+	-- #img_paths do
+	print (img_idx,#img_paths);
+	img_path=img_paths[img_idx];
+	img_name=paths.basename(img_path,'.jpg')
+	out_file=paths.concat(out_dir_score,img_name..'.npy');
+	out_file_seg=paths.concat(out_dir_score,img_name..'_seg.npy');
+
+	img=image.load(img_path);
+	img=preprocessImage(img,mean)
+	input=torch.reshape(img,torch.LongStorage({1,img:size(1),img:size(2),img:size(3)}));
+	input=input:cuda();
+
+	out=net:forward(input);
+
+	out_between=net:get(1):get(2).output;
+	-- print (out_between:size());
+	-- print (out:size());
+
+	pos_idx={};
+	for i=1,out:size(3) do
+		for j=1,out:size(4) do
+			if out[{1,1,i,j}]>thresh then
+				pos_idx[#pos_idx+1]={i,j};
+			end
+		end
+	end
+
+	if #pos_idx>0 then
+		-- print (pos_idx[1]);
+		seg_rec=torch.Tensor(torch.LongStorage({#pos_idx,160,160}));
+		-- print (seg_rec:size());
+		for idx=1,#pos_idx do
+			-- print (out_between:size());
+			-- print (out:size());
+			-- print (i_j)
+			i_j=pos_idx[idx];
+			out_curr=out_between[{1,{},i_j[1],i_j[2]}];
+			seg_out=net_seg:forward(out_curr);
+			-- print (seg_out:size());
+			-- print (seg_out[1]:size());
+			seg_rec[idx]=seg_out[1]:double();
+		end
+		-- print (net);
+		-- print (net:get(1):get(2));
+		-- print (net_seg);
+		npy4th.savenpy(out_file_seg,seg_rec)
+	end
+	npy4th.savenpy(out_file,out)
+	
+	-- break
+end
