@@ -200,9 +200,9 @@ def script_writeHTMLForOverlap(path_to_npy,path_to_im,ext,lim,out_file,out_dir_s
 
     visualize.writeHTML(out_file_html,img_paths_html,captions_html);
 
-def script_doEverything(path_to_npy,path_to_im,ext,lim,out_file,out_dir_scratch,window,step_size,thresh,scale_info,scale_all, scale_images,lim_cases,gpu,model_file,clusters_file):
+def script_doEverything(path_to_npy,path_to_im,ext,lim,out_file,out_dir_scratch,window,step_size,thresh,scale_info,scale_all, scale_images,lim_cases,gpu,model_file,clusters_file,train_val_file=None,overwrite=False):
     for scale in scale_all:
-        script_saveImCrops(path_to_npy,path_to_im,ext,lim,out_file,out_dir_scratch,window,step_size,thresh,scale_info,scale,scale_images,lim_cases)
+        # script_saveImCrops(path_to_npy,path_to_im,ext,lim,out_file,out_dir_scratch,window,step_size,thresh,scale_info,scale,scale_images,lim_cases)
 
         for scale_image in scale_images:
             dir_scale=os.path.join(out_dir_scratch,scale+'_'+str(scale_image));
@@ -222,7 +222,7 @@ def script_doEverything(path_to_npy,path_to_im,ext,lim,out_file,out_dir_scratch,
                 out_dir_flo_viz=img_dir+'_pred_flo_viz';
                 util.mkdir(out_dir_flo);
                 util.mkdir(out_dir_flo_viz);
-                po.script_saveFlosAndViz(img_paths,out_dir_flo,out_dir_flo_viz,gpu,model_file,clusters_file)
+                po.script_saveFlosAndViz(img_paths,out_dir_flo,out_dir_flo_viz,gpu,model_file,clusters_file,train_val_file=train_val_file,overwrite=overwrite)
                 img_names=util.getFileNames(img_paths,ext=False);
                 out_dir_flo=img_dir+'_pred_flo';
                 out_dir_flo_viz=img_dir+'_pred_flo_viz';
@@ -296,10 +296,69 @@ def script_testOnYoutube():
     visualize.writeHTML(out_file_html,img_paths_html,captions_html);
 
 
-def main():
-    # script_testOnYoutube();
+def saveFlosFromValFile(out_dir_model,val_file,num_to_pick,model_file,clusters_file,gpu,train_val_file=None,overwrite=False):
 
-    # return
+    
+    out_dir_flo=os.path.join(out_dir_model,'flo');
+    out_dir_flo_viz=os.path.join(out_dir_model,'flo_viz');
+    util.mkdir(out_dir_flo);util.mkdir(out_dir_flo_viz)
+
+
+
+    img_paths=util.readLinesFromFile(val_file);
+    img_paths=[img_path[:img_path.index(' ')] for img_path in img_paths];
+    class_names=[file_curr[:file_curr.index('_')] for file_curr in util.getFileNames(img_paths)];
+    classes=list(set(class_names));
+    class_names=np.array(class_names);
+    
+    img_paths_test=[];
+    for class_curr in classes:
+        idx_rel=np.where(class_names==class_curr)[0];
+        idx_rel=idx_rel[:num_to_pick];
+        img_paths_test.extend([img_paths[idx_curr] for idx_curr in idx_rel]);
+
+    po.script_saveFlosAndViz(img_paths_test,out_dir_flo,out_dir_flo_viz,gpu,model_file,clusters_file,train_val_file=train_val_file,overwrite=overwrite);
+    return img_paths_test;
+
+
+def main():
+    val_file='/disk2/mayExperiments/finetuning_youtube_hmdb_llr/val_eq.txt'
+    out_dir='/disk2/mayExperiments/eval_nC_zS_youtube';
+    model_file='/disk3/maheen_data/ft_youtube_40_images_cluster_suppress_yjConfig/opt_noFix_conv1_conv2_conv3_conv4_conv5_llr__iter_50000.caffemodel'
+    clusters_file='/disk3/maheen_data/youtube_train_40/clusters_100000.mat';
+    train_val_file='/disk3/maheen_data/ft_youtube_40_images_cluster_suppress_yjConfig/train_val_conv1_conv2_conv3_conv4_conv5.prototxt';
+    util.mkdir(out_dir);
+    out_dir_model=os.path.join(out_dir,'ft_youtube_model');
+    num_to_pick=100;
+    util.mkdir(out_dir_model);
+    gpu=0;
+
+
+    model_file_orig='/home/maheenrashid/Downloads/debugging_jacob/optical_flow_prediction_test/examples/opticalflow/final.caffemodel'
+    clusters_file_orig='/home/maheenrashid/Downloads/debugging_jacob/optical_flow_prediction_test/examples/opticalflow/clusters.mat';
+    out_dir_model_orig=os.path.join(out_dir,'ft_original_model');
+    util.mkdir(out_dir_model_orig);
+    
+    img_paths_test=saveFlosFromValFile(out_dir_model_orig,val_file,num_to_pick,model_file_orig,clusters_file_orig,gpu,train_val_file=None,overwrite=True);
+
+    out_file_html=os.path.join(out_dir,'model_comparison.html');
+    out_dirs_flo_viz=[os.path.join(out_dir_model_orig,'flo_viz'),os.path.join(out_dir_model,'flo_viz')];
+    out_dirs_flo_viz_captions=['original_model','ft_youtube_model'];
+    img_paths_html=[];
+    captions_html=[];
+    img_names=util.getFileNames(img_paths_test,ext=False);
+    for img_path_test,img_name in zip(img_paths_test,img_names):
+        row_curr=[];
+        row_curr.append(util.getRelPath(img_path_test));
+        for out_dir_curr in out_dirs_flo_viz:
+            file_curr=os.path.join(out_dir_curr,img_name+'.png');
+            row_curr.append(util.getRelPath(file_curr));
+        captions_curr=[img_name]+out_dirs_flo_viz_captions;
+        img_paths_html.append(row_curr)
+        captions_html.append(captions_curr);
+    visualize.writeHTML(out_file_html,img_paths_html,captions_html);
+
+    return
     path_to_npy='/disk2/mayExperiments/validation_anno/';
     path_to_im='/disk2/ms_coco/val2014/';
     ext='.jpg'
@@ -323,12 +382,15 @@ def main():
     out_dir_scratch='/disk2/mayExperiments/flow_resolution_scratch/im_viz_padding_ft_ucf_model_imagenet';
     util.mkdir(out_dir_scratch);
     model_file='/disk3/maheen_data/ft_imagenet_ucf/OptFlow_imagenet_hlr__iter_22000.caffemodel'
-
-
     clusters_file='/home/maheenrashid/Downloads/debugging_jacob/optical_flow_prediction_test/examples/opticalflow/clusters.mat';
 
-    util.mkdir(out_dir_scratch);
 
+    out_dir_scratch='/disk2/mayExperiments/flow_resolution_scratch/im_viz_padding_ft_nC_sZ_youtube';
+    util.mkdir(out_dir_scratch);
+    model_file='/disk3/maheen_data/ft_youtube_40_images_cluster_suppress_yjConfig/opt_noFix_conv1_conv2_conv3_conv4_conv5_llr__iter_50000.caffemodel'
+    clusters_file='/disk3/maheen_data/youtube_train_40/clusters_100000.mat';
+    train_val_file='/disk3/maheen_data/ft_youtube_40_images_cluster_suppress_yjConfig/train_val_conv1_conv2_conv3_conv4_conv5.prototxt';
+    overwrite=True;
     window=160;
     step_size=16;
     thresh=0.50;
@@ -354,7 +416,7 @@ def main():
     
     
 
-    script_doEverything(path_to_npy,path_to_im,ext,lim,out_file,out_dir_scratch,window,step_size,thresh,scale_info,scale_all, scale_images,lim_cases,gpu,model_file,clusters_file);
+    script_doEverything(path_to_npy,path_to_im,ext,lim,out_file,out_dir_scratch,window,step_size,thresh,scale_info,scale_all, scale_images,lim_cases,gpu,model_file,clusters_file,train_val_file=train_val_file,overwrite=overwrite);
 
     script_writeHTMLForOverlap(path_to_npy,path_to_im,ext,lim,out_file,out_dir_scratch,window,step_size,thresh,scale_info,scale_all, scale_images,lim_cases,gpu,model_file,clusters_file)
 

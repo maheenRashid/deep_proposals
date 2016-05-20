@@ -204,7 +204,26 @@ def getBBoxTightCanonical(bbox_big,bbox):
 	return bbox_ac;
 
 
+def script_checkGPUImplementation():
+
+	dir_meta_validation='/disk2/mayExperiments/validation/rescaled_images'
+	dir_meta_test='/disk3/maheen_data/headC_160_noFlow_bbox/'
+	dir_validations=[os.path.join(dir_meta_test,str(num)) for num in [6]];
 	
+	dir_old=dir_validations[0];
+	dir_new=dir_old+'_test';
+
+	files=util.getFileNames(util.getFilesInFolder(dir_new,ext='.npy'));
+	print files;
+	for file_curr in files:
+		new=np.load(os.path.join(dir_new,file_curr));
+		old=np.load(os.path.join(dir_old,file_curr));
+		print new.shape,old.shape,np.allclose(new,old,atol=1e-4);
+		print new
+		print old
+
+
+	# return	
 
 def main():
 
@@ -216,16 +235,16 @@ def main():
 
 	dir_canon_im='/disk2/mayExperiments/validation/rescaled_images/4'
 	# dir_validations=[os.path.join(dir_meta_validation,str(num)) for num in range(6)];
-	dir_validations=[os.path.join(dir_meta_validation,str(num)) for num in [6]];
+	dir_validations=[os.path.join(dir_meta_validation,str(num)) for num in [5,6]];
 
 	out_files=[dir_curr+'.txt' for dir_curr in dir_validations];
 	# script_saveValidationTexts(dir_validations,out_files);
 
-	path_to_test_file='/home/maheenrashid/Downloads/deep_proposals/torch_new/test_command_line.th';
+	path_to_test_file='/home/maheenrashid/Downloads/deep_proposals/torch_new/test_command_line_bigIm.th';
 	model='/disk2/aprilExperiments/headC_160/noFlow_gaussian_all_actual/intermediate_resume_2/model_all_70000.dat';
 	
 	# out_file_sh=os.path.join(dir_meta_test,'test_20.sh');
-	gpu=-1;
+	gpu=1;
 	limit=-1;
 	out_file_sh=os.path.join(dir_meta_test,'test_'+str(limit)+'.sh');
 

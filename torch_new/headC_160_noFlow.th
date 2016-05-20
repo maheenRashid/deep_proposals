@@ -122,20 +122,24 @@ function getLossScoreD(x_score,gt_label)
 end
 
 local torch_file='/disk2/januaryExperiments/vgg_16/vgg16_onlyConv.dat';
--- local deep_prop_file='/disk2/aprilExperiments/headC_160/noFlow_gaussian.dat'
-local deep_prop_file='/disk2/aprilExperiments/headC_160/noFlow_gaussian_all_actual/intermediate_resume/model_all_25000.dat';
-local out_dir='/disk2/aprilExperiments/headC_160/noFlow_gaussian_all_actual';
+local deep_prop_file='/disk2/aprilExperiments/headC_160/noFlow_gaussian.dat'
+-- local deep_prop_file='/disk2/aprilExperiments/headC_160/noFlow_gaussian_all_actual/intermediate_resume/model_all_25000.dat';
+-- local out_dir='/disk2/aprilExperiments/headC_160/noFlow_gaussian_all_actual';
+local out_dir='/disk3/maheen_data/headC_160/noFlow_gaussian_human';
 
 -- net=makeMyNetwork(torch_file)
 -- torch.save(deep_prop_file,net);
 
 
 -- local pos_file='/disk2/februaryExperiments/deep_proposals/positive_data.txt';
-local pos_file='/disk2/aprilExperiments/positives_160.txt';
-local neg_file='/disk2/marchExperiments/deep_proposals/negatives.txt';
+-- local pos_file='/disk2/aprilExperiments/positives_160.txt';
+-- local neg_file='/disk2/marchExperiments/deep_proposals/negatives.txt';
+
+local pos_file='/disk2/aprilExperiments/positives_160_human.txt'
+local neg_file='/disk2/marchExperiments/deep_proposals/negatives_onlyHuman.txt'
 
 paths.mkdir(out_dir);
-local out_dir_intermediate=paths.concat(out_dir,'intermediate_resume_2');
+local out_dir_intermediate=paths.concat(out_dir,'intermediate');
 local out_dir_final=paths.concat(out_dir,'final');
 paths.mkdir(out_dir_intermediate);
 paths.mkdir(out_dir_final);
@@ -155,18 +159,22 @@ local out_file_loss_plot_intermediate_seg=out_dir_intermediate..'/'..'loss_iter_
 local out_file_loss_plot_final_seg=out_dir_final..'/'..'loss_iter_seg.png';
 
 
--- print ('pos_file',pos_file)
--- print ('neg_file',neg_file)
+print ('pos_file',pos_file)
+print ('neg_file',neg_file)
 -- td=data({file_path_positive=pos_file,file_path_negative=neg_file});
 -- print (td.lines_positive[1])
 -- print (td.lines_negative[1])
--- -- td:getTrainingDataToy();
+-- td:getTrainingDataToy();
+-- print (td.training_set_seg.data:size())
+-- for i=1,td.training_set_seg.data:size(1) do
+--     print (i,torch.min(td.training_set_seg.data[i]),torch.max(td.training_set_seg.data[i]),td.training_set_seg.label[i]:size())
+-- end
+
 -- td:getTrainingDataToyScore();
 -- print (td.training_set_score.data:size())
 -- for i=1,td.training_set_score.data:size(1) do
 --     print (i,torch.min(td.training_set_score.data[i]),torch.max(td.training_set_score.data[i]),td.training_set_score.label[i][1])
 -- end
-
 
 
 local opt = {}         
@@ -258,6 +266,7 @@ local fevalSeg = function(x)
     local dloss_doutput = getLossSegD(batch_outputs, batch_targets)
     
     local gradInputs=net:get(2):get(2):backward(batch_outputs_mid, dloss_doutput):clone()
+    -- print (gradInputs:size());
     net:get(1):backward(batch_inputs, gradInputs)
     return batch_loss, gradParameters
 end

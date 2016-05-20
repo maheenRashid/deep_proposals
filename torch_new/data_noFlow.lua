@@ -289,7 +289,8 @@ do
                         crop_box={start_x,start_y,end_x,end_y};
                         
                         -- check if crop is valid negative
-                        if self:isValidNegative(crop_box,bbox,params.max_dim,params.tolerance,params.tolerance_scale,params.crop_size) then
+                        -- print (bbox:nElement());
+                        if (bbox:nElement()==0) or self:isValidNegative(crop_box,bbox,params.max_dim,params.tolerance,params.tolerance_scale,params.crop_size) then
                             break;
                         end
                     end
