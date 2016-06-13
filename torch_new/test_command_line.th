@@ -2,6 +2,7 @@ require 'nn';
 require 'cutorch';
 require 'cunn';
 npy4th = require 'npy4th'
+require 'image';
 
 function preprocessImage(img,mean)
 	if img:size()[1]==1 then
@@ -63,6 +64,19 @@ function readDataFile(file_path)
     return file_lines
 
 end
+
+function readDataFileSegSave(file_path)
+	local file_lines = {};
+    for line in io.lines(file_path) do 
+		local start_idx, end_idx = string.find(line, ' ');
+        local img_path=string.sub(line,1,start_idx-1);
+        local flow_path=string.sub(line,end_idx+1,#line);
+        
+        file_lines[#file_lines+1]={img_path,flow_path};
+    end 
+    return file_lines
+end
+
 
 function saveSegOnlyNetwork(network_file,out_file)
 	local net=torch.load(network_file);
@@ -228,6 +242,153 @@ function main(params)
 end
 
 
+function main_saveSeg(params)
+
+	-- create outDir
+	paths.mkdir(params.outDir)
+	
+	-- set gpu device
+	if params.gpu~=-1 then
+		cutorch.setDevice(params.gpu)
+	end
+
+	-- create log file
+	local log_params_file=paths.concat(params.outDir,'log_params.txt');
+	cmd:log(log_params_file, params)
+
+	local model_name=paths.basename(params.model,'.dat');
+	local out_dir_model=paths.dirname(params.model);
+	local network_score_file=paths.concat(out_dir_model,model_name..'_score.dat');
+	local network_seg_file=paths.concat(out_dir_model,model_name..'_seg.dat');
+
+	print (network_score_file)
+	print (paths.filep(network_score_file));
+	print (params.splitModel);
+	print (not paths.dirp(network_score_file) or params.splitModel);
+
+	-- return
+	if params.splitModel or not paths.filep(network_score_file) then
+		print ('splitting model score');
+		saveScoreOnlyNetwork(params.model,network_score_file);
+	end
+
+	if params.splitModel or not paths.filep(network_seg_file) then
+		print ('splitting model seg');
+		saveSegOnlyNetwork(params.model,network_seg_file);
+	end
+
+	local mean={122,117,104}
+	local thresh=0;
+	local thresh_seg=0.2;
+
+	print ('loading model score')
+	local net=torch.load(network_score_file);
+	if params.gpu~=-1 then
+		net=net:cuda();
+	else
+		net=net:double();
+	end
+	net:evaluate();
+
+	print ('loading model seg')
+	local net_seg=torch.load(network_seg_file);
+	if params.gpu~=-1 then
+		net_seg=net_seg:cuda();
+	else
+		net_seg=net_seg:double();
+	end
+	net_seg:evaluate();
+
+	print ('reading test image file');
+	local img_paths_and_npy=readDataFileSegSave(params.testFile);
+	print ('len img_paths',#img_paths_and_npy);
+
+	local end_idx;
+	if params.limit==-1 then
+		end_idx=#img_paths_and_npy;
+	else
+		end_idx=math.min(params.limit,#img_paths_and_npy);
+	end
+
+	for img_idx=1,end_idx do
+		local x = os.clock()
+		print (img_idx,end_idx);
+		local img_path=img_paths_and_npy[img_idx][1];
+		local seg_idx_path=img_paths_and_npy[img_idx][2];
+		local img_name=paths.basename(img_path,'.jpg')
+		-- local out_file=paths.concat(params.outDir,img_name..'.npy');
+		local out_file_seg=paths.concat(params.outDir,img_name..'_seg.npy');
+		-- local out_file_box=paths.concat(params.outDir,img_name..'_box.npy');
+
+		if not paths.filep(out_file_seg) or params.overwrite then
+			local img=image.load(img_path);
+			img=preprocessImage(img,mean)
+			local input=torch.reshape(img,torch.LongStorage({1,img:size(1),img:size(2),img:size(3)}));
+			if params.gpu~=-1 then
+				input=input:cuda();
+			end
+
+			local out=net:forward(input);
+			local out_between=net:get(1):get(2).output;
+
+			-- local pos_idx={};
+			-- for i=1,out:size(3) do
+			-- 	for j=1,out:size(4) do
+			-- 		if out[{1,1,i,j}]>thresh then
+			-- 			pos_idx[#pos_idx+1]={i,j};
+			-- 		end
+			-- 	end
+			-- end
+
+			-- if #pos_idx>0 then
+			-- 	local seg_rec=torch.Tensor(torch.LongStorage({#pos_idx,160,160}));
+			-- 	for idx=1,#pos_idx do
+			-- 		local i_j=pos_idx[idx];
+			-- 		local out_curr=out_between[{1,{},i_j[1],i_j[2]}];
+			-- 		local seg_out=net_seg:forward(out_curr);
+			-- 		-- print (seg_out[1]:size());
+			-- 		seg_rec[idx]=seg_out[1]:double();
+			-- 	end
+
+			-- 	seg_box=getTightBbox(seg_rec,thresh_seg);
+			-- 	-- npy4th.savenpy(out_file_seg,seg_rec)
+			-- 	npy4th.savenpy(out_file_box,seg_box)
+			-- end
+
+			seg_idx_mat=  npy4th.loadnpy(seg_idx_path)
+			print (seg_idx_mat:size())
+
+
+
+			local seg_rec=torch.Tensor(torch.LongStorage({seg_idx_mat:size(1),160,160}));
+			-- print (seg_rec:size())
+			for row_num=1,seg_idx_mat:size(1) do
+				-- print (row_num)
+				i = seg_idx_mat[row_num][3] + 1;
+				j = seg_idx_mat[row_num][4] + 1;
+
+			-- for i=1,out:size(3) do
+			-- 	for j=1,out:size(4) do
+				local out_curr=out_between[{1,{},i,j}];
+				local seg_out=net_seg:forward(out_curr);
+				-- print ('seg_out:size()',seg_out:size(),i,j)
+				-- print ('out:size()',out:size())
+				-- assert (out[1][1][i][j]==seg_idx_mat[row_num][1]);
+				-- bbox_curr=getTightBboxSingle(seg_out:double(),thresh_seg);
+				seg_rec[row_num] = seg_out:double()[1];
+				-- end
+			end
+			npy4th.savenpy(out_file_seg,seg_rec)
+			-- npy4th.savenpy(out_file,out)
+		end
+
+		print(string.format("elapsed time: %.2f\n", os.clock() - x))
+
+	end
+
+
+end
+
 cmd = torch.CmdLine()
 cmd:text()
 cmd:text('Test Network No Flow')
@@ -240,9 +401,16 @@ cmd:option('-outDir','','directory to write output');
 cmd:option('-limit',-1,'num of files to test');
 cmd:option('-gpu',1,'gpu number');
 cmd:option('-overwrite',false,'overwrite saved results');
+cmd:option('-saveSeg',false,'save pred indexed seg masks');
 cmd:text()
 
 -- parse input params
 params = cmd:parse(arg)
 print (params);
-main(params);
+if params.saveSeg then
+	main_saveSeg(params);
+else
+	main(params);
+end
+
+

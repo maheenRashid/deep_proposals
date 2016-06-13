@@ -3,7 +3,9 @@ import numpy as np;
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt;
 import os;
-from PIL import Image,ImageDraw;
+from PIL import Image,ImageDraw,ImageFont;
+import scipy.misc
+import util;
 
 def writeHTML(file_name,im_paths,captions,height=200,width=200):
     f=open(file_name,'w');
@@ -31,6 +33,23 @@ def writeHTML(file_name,im_paths,captions,height=200,width=200):
         f.write('<p></p>');
     f.write('</table>\n');
     f.close();
+
+def getHeatMap(arr,max_val=255):
+    cmap = plt.get_cmap('jet')
+    rgba_img = cmap(arr)
+    rgb_img = np.delete(rgba_img, 3, 2)
+    rgb_img = rgb_img*max_val
+    # print rgb_img.shape,rgba_img.shape
+    return rgb_img
+
+def fuseAndSave(img,heatmap,alpha,out_file_curr=None):
+    im=(img*alpha)+(heatmap*(1-alpha));
+
+    if out_file_curr is None:
+        return im;
+    else:
+        scipy.misc.imsave(out_file_curr,im);
+
 
 def visualizeFlo(flo,file_name_x,file_name_y):
     plt.figure();plt.imshow(flo[:,:,0]);plt.savefig(file_name_x);
@@ -158,10 +177,12 @@ def plotErrorBars(dict_to_plot,x_lim,y_lim,xlabel,y_label,title,out_file,margin=
     plt.savefig(out_file);
     plt.close();
 
-def plotSimple(xAndYs,out_file,title='',xlabel='',ylabel='',legend_entries=None,loc=0,outside=False):
+def plotSimple(xAndYs,out_file,title='',xlabel='',ylabel='',legend_entries=None,loc=0,outside=False,logscale=False):
     plt.title(title);
     plt.xlabel(xlabel);
     plt.ylabel(ylabel);
+    if logscale:
+        plt.gca().set_xscale('log')
     # assert len(xs)==len(ys)
     handles=[];
     for x,y in xAndYs:
@@ -232,12 +253,29 @@ def plotGroupBar(out_file,dict_vals,xtick_labels,legend_vals,colors,xlabel='',yl
     plt.savefig(out_file, bbox_inches='tight');
     plt.close();  
 
-def plotBBox(img_path,bboxes,out_file,colors=None):
+def plotBBox(img_path,bboxes,out_file,colors=None,labels=None):
+
     if type(img_path)==type('str'):
-        im=Image.open(img_path);
+        im=scipy.misc.imread(img_path);
     else:
-        im=Image.fromarray(img_path)
+        im=img_path;
+
+    if len(im.shape)<3:
+        im=np.dstack((im,im,im));    
+    im=np.asarray(im,np.uint8)
+    im=Image.fromarray(im)
+    
+    if im.mode != "RGB":
+        im.convert("RGB")
+    # print im.size
+    # print im.mode
+
+    if labels is not None:
+        assert len(labels)==len(bboxes);
+        fontsize=max(20,im.size[0]/40);
+        font = ImageFont.truetype("/usr/share/fonts/truetype/msttcorefonts/arial.ttf", fontsize)
         
+
     draw = ImageDraw.Draw(im)
     
     for idx_bbox,bbox in enumerate(bboxes):
@@ -249,8 +287,44 @@ def plotBBox(img_path,bboxes,out_file,colors=None):
             color_curr=colors;
         else:
             color_curr=colors[idx_bbox]
-        draw.rectangle([int(val) for val in bbox_curr],outline=color_curr);
+        # print color_curr;
+        # print bbox_curr
+        bbox_curr=[int(val) for val in bbox_curr]
+        draw.rectangle(bbox_curr,outline=color_curr);
+
+        if labels is not None:
+            label_curr= labels[idx_bbox];
+            if type(label_curr)!=type('str'):
+                label_curr= '%.2f' %label_curr
+            # print labels    
+            color_curr= (color_curr[0],color_curr[1],color_curr[2],255);
+            draw.text((bbox_curr[0],bbox_curr[1]), label_curr, font=font,fill=color_curr)
+
     im.save(out_file);
+
+
+def writeHTMLForDifferentFolders(out_file_html,folders,captions,img_names,rel_path_replace=None,height=200,width=200):
+    if rel_path_replace is None:
+        string_curr=folders[0];
+        rel_path_replace=string_curr[:string_curr[1:].index('/')+1];
+
+    # print rel_path_replace
+
+    img_paths=[];
+    captions_html=[];
+    
+    for img_name in img_names:
+        captions_row = [];
+        img_paths_row = [];
+        for caption_curr,folder in zip(captions,folders):
+            img_paths_row.append(util.getRelPath(os.path.join(folder,img_name),rel_path_replace));
+            captions_row.append(caption_curr);
+        img_paths.append(img_paths_row);
+        captions_html.append(captions_row);
+
+
+    writeHTML(out_file_html,img_paths,captions_html,height=height,width=width);
+
 
 
 def main():

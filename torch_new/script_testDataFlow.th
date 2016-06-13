@@ -1,0 +1,78 @@
+require 'image'
+require 'data_withFlow';
+npy4th = require 'npy4th'
+local neg_file='/disk3/maheen_data/headC_160/neg_flos/negatives_onlyHuman_withFlow.txt'
+local pos_file='/disk3/maheen_data/headC_160/noFlow_gaussian_human/pos_flos/positives_onlyHuman_withFlow.txt'
+
+local td=data({file_path_positive=pos_file,file_path_negative=neg_file});
+td:getTrainingDataToyScore();
+
+print (td.training_set_score.data:size());
+print (td.training_set_score.label:size());
+print (td.training_set_score.flo:size());
+for idx=1,1 do
+	-- td.training_set_score.data:size(1) do
+	print (td.training_set_score.data[idx]:size())
+	print (torch.min(td.training_set_score.data[idx]),torch.max(td.training_set_score.data[idx]))
+	print (td.training_set_score.label[idx]:size())
+	print (torch.min(td.training_set_score.label[idx]),torch.max(td.training_set_score.label[idx]))
+	print (td.training_set_score.flo[idx]:size())
+	print (torch.min(td.training_set_score.flo[idx]),torch.max(td.training_set_score.flo[idx]))
+	print ('____');
+end
+
+td:getTrainingDataToy();
+
+print (td.training_set_seg.data:size());
+print (td.training_set_seg.label:size());
+print (td.training_set_seg.flo:size());
+for idx=1,1 do
+	-- td.training_set_seg.data:size(1) do
+	print (td.training_set_seg.data[idx]:size())
+	print (torch.min(td.training_set_seg.data[idx]),torch.max(td.training_set_seg.data[idx]))
+	print (td.training_set_seg.label[idx]:size())
+	print (torch.min(td.training_set_seg.label[idx]),torch.max(td.training_set_seg.label[idx]))
+	print (td.training_set_seg.flo[idx]:size())
+	print (torch.min(td.training_set_seg.flo[idx]),torch.max(td.training_set_seg.flo[idx]))
+	print ('____');
+end
+
+
+
+
+-- print (td.training_set_seg.data:size());
+-- print (td.training_set_seg.label:size());
+-- print (td.training_set_seg.flo:size());
+-- for idx=1,td.training_set_seg.data:size(1) do
+-- 	print (td.training_set_seg.data[idx]:size())
+-- 	print (torch.min(td.training_set_seg.data[idx]),torch.max(td.training_set_seg.data[idx]))
+-- 	print (td.training_set_seg.label[idx]:size())
+-- 	print (torch.min(td.training_set_seg.label[idx]),torch.max(td.training_set_seg.label[idx]))
+-- 	print (td.training_set_seg.flo[idx]:size())
+-- 	print (torch.min(td.training_set_seg.flo[idx]),torch.max(td.training_set_seg.flo[idx]))
+-- 	print ('____');
+-- end
+
+
+-- self.training_set_seg.data=torch.zeros(self.batch_size_seg,3,self.params.crop_size[1]
+--             ,self.params.crop_size[2]);
+--         self.training_set_seg.label=torch.zeros(self.batch_size_seg,1,self.params.crop_size[1],
+--         	self.params.crop_size[2]);
+--         self.training_set_seg.flo=torch.zeros(self.batch_size_seg,1,self.params.crop_size[1],
+--             self.params.crop_size[2]);
+
+-- local lim=2;
+-- for i=1,lim do
+-- 	print (td.lines_seg[i]);
+-- end
+-- print ('____');
+-- for i=1,lim do
+-- 	print (td.lines_positive[i])
+-- end
+-- print ('____');
+-- for i=1,lim do
+-- 	print (td.lines_negative[i])
+-- end
+-- print ('____');
+
+

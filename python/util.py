@@ -3,6 +3,33 @@ import scipy
 import subprocess;
 import os;
 
+def readFlowFile(file_name,flip=False):
+    data2D=None
+    with open(file_name,'rb') as f:
+        magic = np.fromfile(f, np.float32, count=1)
+        if 202021.25 != magic:
+            print 'Magic number incorrect. Invalid .flo file'
+        else:
+            w = np.fromfile(f, np.int32, count=1)
+            h = np.fromfile(f, np.int32, count=1)
+            if w.size==0 or h.size==0:
+                # print type(w),type(h),w,h
+                data2D=None;
+            else:               
+                # print (w, h)
+                data = np.fromfile(f, np.float32, count=2*w*h)
+                # Reshape data into 3D array (columns, rows, bands)
+                # if flip is True:
+                #     data2D = np.resize(data, (w, h, 2))
+                #     data2D = data2D.
+                #     data2D = np.reshape(data, (h, w, 2))
+                #     # ,order='F')
+                # else:
+                data2D = np.reshape(data, (h, w, 2))
+                # print data2D.shape
+    return data2D
+
+
 def writeFlowFile(arr,file_name):
     with open(file_name, 'wb') as f:
         magic=np.float32(202021.25);

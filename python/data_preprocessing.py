@@ -1,3 +1,7 @@
+import sys;
+sys.path.append('/home/maheenrashid/Downloads/debugging_jacob/python/')
+import processOutput as po;
+
 import scipy.misc
 import numpy as np;
 import json;
@@ -11,6 +15,89 @@ import util;
 # import cv2;
 # import scipy.io;
 import visualize;
+
+
+def saveFlowImage((flo_file,out_file,idx)):
+    print idx,out_file
+    if os.path.exists(out_file):
+        print 'SKIP'
+        return;
+
+    if not os.path.exists(flo_file):
+        print 'SKIP NO FLO',flo_file
+        return;
+
+    flo = util.readFlowFile(flo_file)
+    
+    mag=np.power(np.power(flo[:,:,0],2)+np.power(flo[:,:,1],2),0.5)
+    
+    flo_final=np.dstack((flo,mag));
+    for dim in range(flo_final.shape[2]):
+        flo_curr=flo_final[:,:,dim]
+        min_val=np.min(flo_curr);
+        flo_curr = flo_curr-min_val;
+        max_val=np.max(flo_curr);
+        scale_factor=255.0/max_val;
+        flo_curr=flo_curr*scale_factor;
+        flo_final[:,:,dim]=flo_curr;
+
+    # for dim in range(flo_final.shape[2]):
+    #     print dim,np.min(flo_final[:,:,dim]),np.max(flo_final[:,:,dim]),np.mean(flo_final[:,:,dim])
+
+    scipy.misc.imsave(out_file,flo_final);
+
+
+
+def saveFlowImFromFloDir(flo_dir,match_info_file,out_dir_flo_im):
+    
+    h5_files,img_files,img_sizes=po.parseInfoFile(match_info_file,lim=None)
+    print len(img_files);
+    flo_files=[os.path.join(flo_dir,file_name+'.flo') for file_name in util.getFileNames(img_files,ext=False)];
+    out_files=[os.path.join(out_dir_flo_im,file_name+'.png') for file_name in util.getFileNames(img_files,ext=False)];
+
+    args=[];
+    for idx,(flo_file,out_file) in enumerate(zip(flo_files,out_files)):
+        args.append((flo_file,out_file,idx))
+    
+    p=multiprocessing.Pool(multiprocessing.cpu_count())
+    p.map(saveFlowImage,args)
+
+
+def saveSlidingWindows((im_path,stride,w,out_dir,idx)):
+    print idx
+    im=scipy.misc.imread(im_path);
+    
+    r_idx_all=range(0,im.shape[0],stride);
+    c_idx_all=range(0,im.shape[1],stride);
+    
+    im_name=util.getFileNames([im_path],ext=False)[0];
+    ext=im_path[im_path.rindex('.'):];
+    
+    out_files=[];
+
+    for idx_r_idx,r_idx in enumerate(r_idx_all):
+        end_r=r_idx+w;        
+        if end_r>im.shape[0]:
+            continue;
+        
+        for idx_c_idx,c_idx in enumerate(c_idx_all):
+            out_file=os.path.join(out_dir,im_name+'_'+str(idx_r_idx)+'_'+str(idx_c_idx)+ext);
+            end_c=c_idx+w;
+
+            if end_c>im.shape[1]:
+                continue;
+            if len(im.shape)>2:
+                im_curr=im[r_idx:end_r,c_idx:end_c,:];
+            else:
+                im_curr=im[r_idx:end_r,c_idx:end_c];
+
+            out_files.append(out_file);
+            scipy.misc.imsave(out_file,im_curr);
+
+    return out_files;
+
+
+
 def addLeadingZeros(id_no,im_pre=None,im_post=None,num_digits_total=12):
     if im_pre is None:
         im_pre='';
