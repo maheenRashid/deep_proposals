@@ -9,8 +9,43 @@ require 'gnuplot'
 npy4th = require 'npy4th'
 require 'data_noFlow';
 require 'paths';
+w_init=require('weight-init');
+
+
+function makeXavierGaussian(model)
+    for idx=1,#model do
+        
+        local m = model.modules[idx]
+        if m.weight then
+            local var;
+            if m.__typename == 'nn.SpatialConvolution' then
+                var = {m.nInputPlane*m.kH*m.kW, m.nOutputPlane*m.kH*m.kW}
+            elseif m.__typename == 'nn.SpatialConvolutionMM' then
+                var = {m.nInputPlane*m.kH*m.kW, m.nOutputPlane*m.kH*m.kW}
+            elseif m.__typename == 'nn.LateralConvolution' then
+                var = {m.nInputPlane*1*1, m.nOutputPlane*1*1}
+            elseif m.__typename == 'nn.VerticalConvolution' then
+                var = {1*m.kH*m.kW, 1*m.kH*m.kW}
+            elseif m.__typename == 'nn.HorizontalConvolution' then
+                var = {1*m.kH*m.kW, 1*m.kH*m.kW}
+            elseif m.__typename == 'nn.Linear' then
+                var = {m.weight:size(2), m.weight:size(1)}
+            elseif m.__typename == 'nn.TemporalConvolution' then
+                var = {m.weight:size(2), m.weight:size(1)}
+            end
+
+            var = 2/(var[1] + var[2])
+            m.weight=torch.randn(m.weight:size()):mul(var);
+            m.bias=torch.zeros(m.bias:size());
+            
+        end
+    end
+
+    return model
+end
 
 function makeMyNetwork(torch_file)
+    method_init='xavier';
 	local vgg=torch.load(torch_file);
 
 	local seq=nn.Sequential();
@@ -21,45 +56,53 @@ function makeMyNetwork(torch_file)
     seq_trunk:add(nn.View(128*10*10));
     seq_trunk:add(nn.Linear(128*10*10,512));
 
-    for idx=1,#seq_trunk do
-        if seq_trunk:get(idx).weight then
-            seq_trunk:get(idx).weight=torch.randn(seq_trunk:get(idx).weight:size()):div(100);
-        end
-        if seq_trunk:get(idx).bias then
-            seq_trunk:get(idx).bias=torch.zeros(seq_trunk:get(idx).bias:size());
-        end
-    end
-
-	seq:add(seq_trunk);
+    -- for idx=1,#seq_trunk do
+    --     if seq_trunk:get(idx).weight then
+    --         seq_trunk:get(idx).weight=torch.randn(seq_trunk:get(idx).weight:size()):div(100);
+    --     end
+    --     if seq_trunk:get(idx).bias then
+    --         seq_trunk:get(idx).bias=torch.zeros(seq_trunk:get(idx).bias:size());
+    --     end
+    -- end
+    -- seq_trunk=w_init(seq_trunk,method_init);
+    seq_trunk = makeXavierGaussian(seq_trunk)
+	-- print (torch.min(seq_trunk:get(1).weight),torch.max(seq_trunk:get(1).weight))
+    seq:add(seq_trunk);
 
 	local score_branch=nn.Sequential();
 	score_branch:add(nn.Linear(512,1024));
 	score_branch:add(nn.ReLU());
 	score_branch:add(nn.Dropout(0.5));
 	score_branch:add(nn.Linear(1024,1));
-	
-    for idx=1,#score_branch do
-        if score_branch:get(idx).weight then
-            score_branch:get(idx).weight=torch.randn(score_branch:get(idx).weight:size()):div(100);
-        end
-        if score_branch:get(idx).bias then
-            score_branch:get(idx).bias=torch.zeros(score_branch:get(idx).bias:size());
-        end
-    end
+	-- score_branch:add(nn.Sigmoid());
+
+    -- for idx=1,#score_branch do
+    --     if score_branch:get(idx).weight then
+    --         score_branch:get(idx).weight=torch.randn(score_branch:get(idx).weight:size()):div(100);
+    --     end
+    --     if score_branch:get(idx).bias then
+    --         score_branch:get(idx).bias=torch.zeros(score_branch:get(idx).bias:size());
+    --     end
+    -- end
+    -- score_branch=w_init(score_branch,method_init);
+    score_branch = makeXavierGaussian(score_branch)
 
 	local seg_branch=nn.Sequential();
 	seg_branch:add(nn.Linear(512,40*40));
 	seg_branch:add(nn.View(1,40,40));
 	seg_branch:add(nn.SpatialUpSamplingNearest(4));
-	
-    for idx=1,#seg_branch do
-        if seg_branch:get(idx).weight then
-            seg_branch:get(idx).weight=torch.randn(seg_branch:get(idx).weight:size()):div(100);
-        end
-        if seg_branch:get(idx).bias then
-            seg_branch:get(idx).bias=torch.zeros(seg_branch:get(idx).bias:size());
-        end
-    end
+	-- seg_branch:add(nn.Sigmoid());
+
+    -- for idx=1,#seg_branch do
+    --     if seg_branch:get(idx).weight then
+    --         seg_branch:get(idx).weight=torch.randn(seg_branch:get(idx).weight:size()):div(100);
+    --     end
+    --     if seg_branch:get(idx).bias then
+    --         seg_branch:get(idx).bias=torch.zeros(seg_branch:get(idx).bias:size());
+    --     end
+    -- end
+    -- seg_branch=w_init(seg_branch,method_init);
+    seg_branch = makeXavierGaussian(seg_branch)
 
 	local split_net=nn.ConcatTable();
 	split_net:add(score_branch);
@@ -80,7 +123,7 @@ function getLossSeg(x_seg,gt_mask)
 	loss:exp();
 	loss:add(1);
 	loss:log();
-    loss:div(56*56);
+    loss:div(40*40);
 	loss=loss:sum()
 	return loss;
 end
@@ -104,7 +147,7 @@ function getLossSegD(x_seg,gt_mask)
 	dloss:cmul(gt_mask);
 	dloss:mul(-1);
 	dloss:cdiv(deno);
-	dloss:div(56*56);
+	dloss:div(40*40);
 	return dloss;
 end
 
@@ -122,10 +165,11 @@ function getLossScoreD(x_score,gt_label)
 end
 
 local torch_file='/disk2/januaryExperiments/vgg_16/vgg16_onlyConv.dat';
-local deep_prop_file='/disk2/aprilExperiments/headC_160/noFlow_gaussian.dat'
+local deep_prop_file='/disk2/aprilExperiments/headC_160/noFlow_gaussian_softmax.dat'
+local deep_prop_file = '/disk3/maheen_data/headC_160/noFlow_gaussian_human_softmax/intermediate/model_all_5500.dat';
 -- local deep_prop_file='/disk2/aprilExperiments/headC_160/noFlow_gaussian_all_actual/intermediate_resume/model_all_25000.dat';
 -- local out_dir='/disk2/aprilExperiments/headC_160/noFlow_gaussian_all_actual';
-local out_dir='/disk3/maheen_data/headC_160/noFlow_gaussian_human';
+local out_dir='/disk3/maheen_data/headC_160/noFlow_gaussian_human_softmax';
 
 -- net=makeMyNetwork(torch_file)
 -- torch.save(deep_prop_file,net);
@@ -139,11 +183,14 @@ local pos_file='/disk2/aprilExperiments/positives_160_human.txt'
 local neg_file='/disk2/marchExperiments/deep_proposals/negatives_onlyHuman.txt'
 
 paths.mkdir(out_dir);
-local out_dir_intermediate=paths.concat(out_dir,'intermediate');
+local out_dir_intermediate=paths.concat(out_dir,'intermediate_res');
 local out_dir_final=paths.concat(out_dir,'final');
+local out_dir_debug = paths.concat(out_dir,'debug');
 paths.mkdir(out_dir_intermediate);
 paths.mkdir(out_dir_final);
+paths.mkdir(out_dir_debug);
 
+local out_file_debug_pre = out_dir_debug..'/'..'debug_files_';
 local out_file_net=out_dir_final..'/'..'model_all_final.dat';
 
 local out_file_loss_seg=out_dir_final..'/'..'loss_all_final_seg.npy';
@@ -180,13 +227,16 @@ print ('neg_file',neg_file)
 local opt = {}         
 opt.optimization = 'sgd'
 opt.batch_size=32;
-opt.learningRate=0.001;
+opt.learningRate=0.0001;
 opt.momentum=0.9
 opt.weightDecay=0.00005;
 opt.iterations=100000;
 opt.saveAfter=5000;
 opt.plotAfter=50;
 opt.dispAfter=4;
+
+opt.debug=false;
+-- opt.debug = 1;
 
 cutorch.setDevice(1);
 
@@ -232,18 +282,43 @@ local fevalScore = function(x)
     end
     
     td:getTrainingDataToyScore();    
+    
     local batch_inputs = td.training_set_score.data:cuda();
     -- local batch_inputs_flow = td.training_set_score.data_flow:cuda();
     local batch_targets = td.training_set_score.label:cuda();
+    
+    if debug_curr then
+        print (out_file_debug_input_data,out_file_debug_input_label)
+        npy4th.savenpy(out_file_debug_input_data, batch_inputs:double())
+        npy4th.savenpy(out_file_debug_input_label, batch_targets:double())
+    end
     
     gradParameters:zero()
     
     local batch_outputs_mid = net:get(1):forward(batch_inputs)
     local batch_outputs = net:get(2):get(1):forward(batch_outputs_mid)
 
+    if debug_curr then
+        print (out_file_debug_output)
+        npy4th.savenpy(out_file_debug_output, batch_outputs:double())
+    end
+    
+
     local batch_loss = getLossScore(batch_outputs, batch_targets)
+
+    if debug_curr then
+        print (out_file_debug_loss)
+        npy4th.savenpy(out_file_debug_loss, torch.Tensor({batch_loss}))
+    end
+        
     local dloss_doutput = getLossScoreD(batch_outputs, batch_targets)
-    local gradInputs=net:get(2):get(1):backward(batch_outputs_mid, dloss_doutput)
+
+    if debug_curr then
+        print (out_file_debug_dloss)
+        npy4th.savenpy(out_file_debug_dloss, dloss_doutput:double())
+    end
+    
+    local gradInputs=net:get(2):get(1):backward(batch_outputs_mid, dloss_doutput):clone()
     net:get(1):backward(batch_inputs, gradInputs)
     return batch_loss, gradParameters
 end
@@ -254,16 +329,41 @@ local fevalSeg = function(x)
     parameters:copy(x)
     end
     
-    td:getTrainingDataToy();    
+    td:getTrainingDataToy();
+
     local batch_inputs = td.training_set_seg.data:cuda();
     -- local batch_inputs_flow = td.training_set_seg.data_flow:cuda();
     local batch_targets = td.training_set_seg.label:cuda();
 
+    if debug_curr then
+        print (out_file_debug_input_data,out_file_debug_input_label)
+        npy4th.savenpy(out_file_debug_input_data, batch_inputs:double())
+        npy4th.savenpy(out_file_debug_input_label, batch_targets:double())
+    end
+    
+
     gradParameters:zero()
     local batch_outputs_mid = net:get(1):forward(batch_inputs)
     local batch_outputs = net:get(2):get(2):forward(batch_outputs_mid)
+
+    if debug_curr then
+        print (out_file_debug_output)
+        npy4th.savenpy(out_file_debug_output, batch_outputs:double())
+    end
+    
     local batch_loss = getLossSeg(batch_outputs, batch_targets)
+
+    if debug_curr then
+        print (out_file_debug_loss)
+        npy4th.savenpy(out_file_debug_loss, torch.Tensor({batch_loss}))
+    end
+    
     local dloss_doutput = getLossSegD(batch_outputs, batch_targets)
+    
+    if debug_curr then
+        print (out_file_debug_dloss)
+        npy4th.savenpy(out_file_debug_dloss, dloss_doutput:double())
+    end
     
     local gradInputs=net:get(2):get(2):backward(batch_outputs_mid, dloss_doutput):clone()
     -- print (gradInputs:size());
@@ -277,6 +377,25 @@ local losses_score = {};
 
 for i=1,opt.iterations do
     
+    if (i%opt.dispAfter==0 or i%opt.dispAfter==opt.dispAfter-1) and opt.debug then
+        debug_curr = true;
+    else
+        debug_curr = false;
+    end
+    -- print (debug_curr,opt.debug)
+    if opt.debug then
+        if i%2==0 then
+            out_file_debug_pre_curr=out_file_debug_pre..'score_';
+        else 
+            out_file_debug_pre_curr=out_file_debug_pre..'seg_';
+        end
+        out_file_debug_input_data=out_file_debug_pre_curr..'inputData_'..i..'.npy';
+        out_file_debug_input_label=out_file_debug_pre_curr..'inputLabel_'..i..'.npy';
+        out_file_debug_output=out_file_debug_pre_curr..'output_'..i..'.npy';
+        out_file_debug_dloss=out_file_debug_pre_curr..'dloss_'..i..'.npy';
+        out_file_debug_loss=out_file_debug_pre_curr..'loss_'..i..'.npy';
+    end
+
     if i%2==0 then
         local _, minibatch_loss = optimMethod(fevalScore,parameters, optimState)
         losses_score[#losses_score + 1] = minibatch_loss[1] -- append the new loss        
