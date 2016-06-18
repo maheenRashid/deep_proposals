@@ -460,15 +460,15 @@ def script_saveMetaMatOverlapInfo(params):
     mats_overlap=util.getFilesInFolder(params.out_dir_overlap,ext='.npz');
 
     # mats_overlap=mats_overlap[:10];
-    results_al
-    for thresh_overlap in threshes_overlap:
-        args=[];
-        for idx_mat_overlap,mat_overlap in enumerate(mats_overlap):
-            args.append((mat_overlap,thresh_overlap,idx_mat_overlap));
+    # results_al
+    # for thresh_overlap in threshes_overlap:
+    args=[];
+    for idx_mat_overlap,mat_overlap in enumerate(mats_overlap):
+        args.append((mat_overlap,thresh_overlap,idx_mat_overlap));
 
-        p=multiprocessing.Pool(multiprocessing.cpu_count());
-        results=p.map(psr.getIdxCorrect,args);
-        results=np.vstack(results);
+    p=multiprocessing.Pool(multiprocessing.cpu_count());
+    results=p.map(psr.getIdxCorrect,args);
+    results=np.vstack(results);
 
 
     print results.shape
@@ -783,196 +783,128 @@ def script_saveWithFloResultsInCompatibleFormat(params):
 
 def main():
 
-    # '/disk3/maheen_data/pedro_val/mat_overlap_check'
-    # [0.1861061112539642, 0.38541755949830003, 0.55634696151538543]
-    # [0.1861061112539642, 0.38541755949830003, 0.55634696151538543]
-    # [0.1861061112539642, 0.38541755949830003, 0.55634696151538543]
+    mat_overlap_dir='/disk3/maheen_data/headC_160_noFlow_justHuman/mat_overlaps_1000';
+    result_dir='/disk3/maheen_data/headC_160_noFlow_justHuman/results';
+    file_names=util.getFileNames(util.getFilesInFolder(mat_overlap_dir,ext='.npz'),ext=False);
+    scale_idx_range=range(7);
+    files_to_del=[];
+    for scale_idx in scale_idx_range:
+        scale_idx = str(scale_idx);
+        dir_curr=os.path.join(result_dir,scale_idx);
+        for file_name in file_names:
+            file_curr_box=os.path.join(dir_curr,file_name+'_box.npy');
+            file_curr_score=os.path.join(dir_curr,file_name+'.npy');
+            assert os.path.exists(file_curr_box);
+            assert os.path.exists(file_curr_score);
+            files_to_del.append(file_curr_box);
+            files_to_del.append(file_curr_score);
+    print len(file_names);
+    print len(files_to_del);
 
-
-    params_dict={};
-
-    params_dict['out_dir_overlap'] = os.path.join('/disk3/maheen_data/headC_160_noFlow_bbox','mat_overlaps_no_neg_1000');
-    params_dict['out_file'] = os.path.join('/disk3/maheen_data/headC_160_noFlow_bbox','meta_info_multi.p');
-    params_dict['thresh_overlap'] = np.arange(0.5,1,0.05);
-
-    params=createParams('saveMetaMatOverlapInfo');
-    params=params(**params_dict);
-    script_saveMetaMatOverlapInfoMultiThresh(params)
-    pickle.dump(params._asdict(),open(os.path.join(params.out_dir_overlap,'params_saveMetaInfo_multi.p'),'wb'));
-
-    thresh_multi_file=params.out_file;
-    script_saveRecallCurve(thresh_multi_file,thresh_multi_file+'ng');
-    # script_saveRecallCurveByImageIdx(thresh_multi_file,thresh_multi_file[:thresh_multi_file.rindex('.')]+'_byIdx.png');
-
-
-
-
-    return
-    params_dict={};
-    params_dict['out_dir_overlap'] = '/disk3/maheen_data/pedro_val/mat_overlap_check'
-    params_dict['out_file'] = os.path.join('/disk3/maheen_data/pedro_val','meta_info_multi.p');
-    params_dict['thresh_overlap'] = np.arange(0.5,1,0.05);
-    params=createParams('saveMetaMatOverlapInfo');
-    params=params(**params_dict);
-    # script_saveMetaMatOverlapInfoMultiThresh(params)
-    # pickle.dump(params._asdict(),open(os.path.join(params.out_dir_overlap,'params_saveMetaInfo_multi.p'),'wb'));
-
-    thresh_multi_file='/disk3/maheen_data/pedro_val/meta_info_multi.p'
-    # script_saveRecallCurve(thresh_multi_file,thresh_multi_file+'ng');
-    script_saveRecallCurveByImageIdx(thresh_multi_file,thresh_multi_file[:thresh_multi_file.rindex('.')]+'_byIdx.png');
+    for file_to_del in files_to_del:
+        os.remove(file_to_del);
 
 
     return
-
-    params_dict={};
-    params_dict['out_dir_overlap'] = '/disk3/maheen_data/headC_160_withFlow_justHuman/mat_overlaps_1000'
-    params_dict['out_file'] = os.path.join('/disk3/maheen_data/headC_160_withFlow_justHuman','meta_info_multi.p');
-    params_dict['thresh_overlap'] = np.arange(0.5,1,0.05);
-    params=createParams('saveMetaMatOverlapInfo');
-    params=params(**params_dict);
-    script_saveMetaMatOverlapInfoMultiThresh(params)
-    pickle.dump(params._asdict(),open(os.path.join(params.out_dir_overlap,'params_saveMetaInfo_multi.p'),'wb'));
-
-    thresh_multi_file='/disk3/maheen_data/headC_160_withFlow_justHuman/meta_info_multi.p'
-    script_saveRecallCurve(thresh_multi_file,thresh_multi_file+'ng');
-
-    # thresh_multi=pickle.load(open(thresh_multi_file,'rb'));
-    # print len(thresh_multi);
-    # for thresh_multi_curr in thresh_multi:
-    #     print thresh_multi_curr.shape;
-
-    # print thresh_multi_curr
-
-    return
-    mat_overlap_dir=os.path.join('/disk3/maheen_data/headC_160_noFlow_justHuman','mat_overlaps_1000')
-    params_dict=pickle.load(open(os.path.join(mat_overlap_dir,'params_saveMetaInfo.p'),'rb'));
-    # print params_dict
-
-    params=createParams('saveMetaMatOverlapInfo');
-    params=params(**params_dict);
-    script_saveMetaMatOverlapInfo(params);
-    pickle.dump(params._asdict(),open(os.path.join(params.out_dir_overlap,'params_saveMetaInfo.p'),'wb'));
-
-    meta_file=params.out_file
-    out_file_plot=meta_file[:meta_file.rindex('.')]+'.png';
-    script_saveRecallCurve(meta_file,out_file_plot)
-
-
-    return
-    params_dict={};
-    params_dict['dir_gt_boxes'] = '/disk3/maheen_data/val_anno_human_only';    
-    params_dict['dir_canon_im'] = os.path.join('/disk3/maheen_data/headC_160_noFlow_justHuman','im','4');
-    params_dict['dir_meta_test'] = os.path.join('/disk3/maheen_data/headC_160_noFlow_justHuman','results')
-    params_dict['dir_result_check'] = os.path.join(params_dict['dir_meta_test'],'4');
-    params_dict['power_scale_range'] = (-2,1);
-    params_dict['power_step_size'] = 0.5
-    params_dict['top'] = 1000;
-    params_dict['stride'] = 16;
-    params_dict['w'] = 160;
-    params_dict['out_dir_overlap'] = os.path.join('/disk3/maheen_data/headC_160_noFlow_justHuman','mat_overlaps_'+str(params_dict['top']));
-
-
-    # mat_overlap_dir=os.path.join('/disk3/maheen_data/headC_160_withFlow_justHuman','mat_overlaps_1000')
-    # params_dict=pickle.load(open(os.path.join(mat_overlap_dir,'params.p'),'rb'));
-    
-    params_dict['overwrite']=True
-    print params_dict
-    # raw_input();
-    params=createParams('saveMatOverlapsVal');
-    params=params(**params_dict);
-    script_saveMatOverlapsVal(params);
-    pickle.dump(params._asdict(),open(os.path.join(params.out_dir_overlap,'params.p'),'wb'));
-
-
-    return
-    params_dict={};
-    params_dict['dir_im']='/disk2/ms_coco/val2014';
-    params_dict['dir_gt_boxes']='/disk2/mayExperiments/validation_anno';    
-    
-    params_dict['dir_mat_overlap']='/disk3/maheen_data/pedro_val/mat_overlap_check'
-    params_dict['dir_overlap_viz']='/disk3/maheen_data/pedro_val/top_10_viz'
-    
-    params_dict['num_to_pick']=10;
-    params_dict['pred_color']=(255,255,255)
-    params_dict['gt_color']=(255,0,0);
-    params_dict['num_threads']=multiprocessing.cpu_count();
-    params_dict['overwrite']=True;
-
-
-    params=createParams('saveAllTopPredViz');
-    params=params(**params_dict);
-    script_saveAllTopPredViz(params);
-    pickle.dump(params._asdict(),open(os.path.join(params.dir_overlap_viz,'params.p'),'wb'));
-    
-    return
-
-    params_dict={};
-
-    params_dict['out_dir_overlap'] = os.path.join('/disk3/maheen_data/headC_160_noFlow_bbox','mat_overlaps_no_neg_1000');
-    params_dict['out_file'] = os.path.join('/disk3/maheen_data/headC_160_noFlow_bbox','meta_info_no_neg.npy');
-    params_dict['thresh_overlap'] = 0.5;
-
-    params=createParams('saveMetaMatOverlapInfo');
-    params=params(**params_dict);
-    # script_saveMetaMatOverlapInfo(params);
-    # pickle.dump(params._asdict(),open(os.path.join(params.out_dir_overlap,'params_saveMetaInfo.p'),'wb'));
-
-    meta_file=params.out_file
-    out_file_plot=meta_file[:meta_file.rindex('.')]+'.png';
-    script_saveRecallCurve(meta_file,out_file_plot)
-
     # params_dict={};
-    # params_dict['dir_gt_boxes'] = '/disk2/mayExperiments/validation_anno';    
-    # params_dict['dir_canon_im'] = '/disk2/mayExperiments/validation/rescaled_images/4';
-    # params_dict['dir_meta_test'] = '/disk3/maheen_data/headC_160_noFlow_bbox'
+    # params_dict['dir_im']='/disk2/ms_coco/val2014';
+    # params_dict['dir_gt_boxes']='/disk3/maheen_data/val_anno_human_only';    
+    # params_dict['dir_mat_overlap']='/disk3/maheen_data/headC_160_noFlow_justHuman_retrain/mat_overlaps_1000';
+    # params_dict['dir_overlap_viz']='/disk3/maheen_data/headC_160_noFlow_justHuman_retrain/gt_overlap_50_viz'
+    # params_dict['overlap_thresh']=0.5;
+    # params_dict['pred_color']=(255,255,255)
+    # params_dict['gt_color']=(255,0,0);
+    # params_dict['num_threads']=multiprocessing.cpu_count();
+    # params_dict['overwrite']=True;
+
+
+    # params=createParams('saveAllWithGTOverlap');
+    # params=params(**params_dict);
+    # script_saveAllWithGTOverlap(params);
+    # pickle.dump(params._asdict(),open(os.path.join(params.dir_overlap_viz,'params.p'),'wb'));
+
+    # return
+    # params_dict={};
+    # params_dict['dir_im']='/disk2/ms_coco/val2014';
+    # params_dict['dir_gt_boxes']='/disk3/maheen_data/val_anno_human_only';    
+    # params_dict['dir_mat_overlap']='/disk3/maheen_data/headC_160_noFlow_justHuman_retrain/mat_overlaps_1000';
+    # params_dict['num_to_pick']=10;
+    # params_dict['dir_overlap_viz']='/disk3/maheen_data/headC_160_noFlow_justHuman_retrain/top_10_viz'
+    # params_dict['pred_color']=(255,255,255)
+    # params_dict['gt_color']=(255,0,0);
+    # params_dict['num_threads']=multiprocessing.cpu_count();
+    # params_dict['overwrite']=False;
+
+    # params=createParams('saveAllTopPredViz');
+    # params=params(**params_dict);
+    # script_saveAllTopPredViz(params);
+    # pickle.dump(params._asdict(),open(os.path.join(params.dir_overlap_viz,'params.p'),'wb'));
+    
+
+    # return
+    # # params_dict={};
+    # # params_dict['out_dir_overlap'] = '/disk3/maheen_data/headC_160_noFlow_justHuman_retrain/mat_overlaps_1000'
+    # # params_dict['out_file'] = os.path.join('/disk3/maheen_data/headC_160_noFlow_justHuman_retrain','meta_info_multi.p');
+    # # params_dict['thresh_overlap'] = np.arange(0.5,1,0.05);
+    # # params=createParams('saveMetaMatOverlapInfo');
+    # # params=params(**params_dict);
+    # # script_saveMetaMatOverlapInfoMultiThresh(params)
+    # # pickle.dump(params._asdict(),open(os.path.join(params.out_dir_overlap,'params_saveMetaInfo_multi.p'),'wb'));
+
+    # meta_file=os.path.join('/disk3/maheen_data/headC_160_noFlow_justHuman_retrain','meta_info_multi.p');
+    # out_file_plot=meta_file[:meta_file.rindex('.')]+'.png';
+    # script_saveRecallCurve(meta_file,out_file_plot)
+
+
+    # return
+    # params_dict={};
+    # params_dict['dir_gt_boxes'] = '/disk3/maheen_data/val_anno_human_only';    
+    # params_dict['dir_canon_im'] = os.path.join('/disk3/maheen_data/headC_160_noFlow_justHuman_retrain','im','4');
+    # params_dict['dir_meta_test'] = os.path.join('/disk3/maheen_data/headC_160_noFlow_justHuman_retrain','results')
     # params_dict['dir_result_check'] = os.path.join(params_dict['dir_meta_test'],'4');
     # params_dict['power_scale_range'] = (-2,1);
     # params_dict['power_step_size'] = 0.5
     # params_dict['top'] = 1000;
     # params_dict['stride'] = 16;
     # params_dict['w'] = 160;
-    # params_dict['out_dir_overlap'] = os.path.join('/disk3/maheen_data/headC_160_noFlow_bbox','mat_overlaps_no_neg_'+str(params_dict['top']));
-    # params_dict['overwrite']=True;
-
+    # params_dict['out_dir_overlap'] = os.path.join('/disk3/maheen_data/headC_160_noFlow_justHuman_retrain','mat_overlaps_'+str(params_dict['top']));
+    # params_dict['overwrite'] = False;
     # params=createParams('saveMatOverlapsVal');
     # params=params(**params_dict);
     # script_saveMatOverlapsVal(params);
     # pickle.dump(params._asdict(),open(os.path.join(params.out_dir_overlap,'params.p'),'wb'));
 
+    # return
+
+    params_dict={};
+
+    params_dict['file_anno'] = '/disk2/ms_coco/annotations/instances_val2014.json';
+    params_dict['category_id'] = 1;
+    params_dict['input_im_pre'] = '/disk2/ms_coco/val2014/COCO_val2014_';
+    params_dict['im_post'] = '.jpg';
+    params_dict['mask_post'] = None;
+    params_dict['num_to_pick'] = 300;
+    params_dict['append_idx'] = False;
+    params_dict['out_dir_test'] = '/disk3/maheen_data/headC_160_noFlow_justHuman';
+    params_dict['out_dir_im'] = os.path.join(params_dict['out_dir_test'],'im');
+    params_dict['out_dir_bbox'] = os.path.join(params_dict['out_dir_test'],'results');
+    params_dict['scale_idx_range'] = range(7);
+    params_dict['out_file_sh_small'] = os.path.join(params_dict['out_dir_bbox'],'test_human_small.sh');
+    params_dict['out_file_sh_big'] = os.path.join(params_dict['out_dir_bbox'],'test_human_big.sh');
+    params_dict['gpu_small'] = 1;
+    params_dict['gpu_big'] = 1;
+    params_dict['range_small'] = range(5);
+    params_dict['range_big'] = range(5,7);
+    params_dict['path_to_test_file_small'] = '/home/maheenrashid/Downloads/deep_proposals/torch_new/test_command_line.th';
+    params_dict['path_to_test_file_big'] = '/home/maheenrashid/Downloads/deep_proposals/torch_new/test_command_line_bigIm.th';
+    params_dict['model'] = '/disk3/maheen_data/headC_160/noFlow_gaussian_human/final/model_all_final.dat';
+    params_dict['limit'] = -1;
+
+    params=createParams('getResultsForCatSpecific');
+    params=params(**params_dict);
+    script_getResultsForCatSpecific(params);
+    pickle.dump(params._asdict(),open(os.path.join(params.out_dir_test,'params.p'),'wb'))
     
-    # problem_file='/disk3/maheen_data/headC_160_noFlow_bbox/mat_overlaps_1000/COCO_val2014_000000013632.npz';
-    
-    # im_name='COCO_val2014_000000013632';
-    # dir_canonical='/disk2/mayExperiments/validation/rescaled_images/4';
-    # im_path_canonical=os.path.join(dir_canonical,im_name+'.jpg');    
-    # dir_meta_test='/disk3/maheen_data/headC_160_noFlow_bbox';
-    
-    # dir_gt_boxes='/disk2/mayExperiments/validation_anno';
-    # out_dir=os.path.join(dir_meta_test,'test_neg');
-    # util.mkdir(out_dir)
-    # out_file=os.path.join(out_dir,im_name+'.npz');
-    # stride=16;
-    # w=160;
-    # top=1000;
-    # idx_im_name=0;
-    # power_scale_range = (-2,1);
-    # power_step_size = 0.5
-
-    # power_range=np.arange(power_scale_range[0],power_scale_range[1]+power_step_size,power_step_size);
-    # scales=[2**val for val in power_range];
-
-    
-    
-    # psr.saveMatOverlap((im_name,im_path_canonical,dir_meta_test,scales,dir_gt_boxes,out_file,stride,w,top,idx_im_name))
-
-    # meta_info=np.load(out_file);
-    # pred_boxes=meta_info['pred_boxes']
-
-    # print np.min(pred_boxes);
-
-
-    print 'hello';
-
 
 
 if __name__=='__main__':

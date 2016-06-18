@@ -10,6 +10,40 @@ npy4th = require 'npy4th'
 require 'data_withFlow';
 require 'paths';
 
+
+function makeXavierGaussian(model)
+    for idx=1,#model do
+        
+        local m = model.modules[idx]
+        if m.weight then
+            local var;
+            if m.__typename == 'nn.SpatialConvolution' then
+                var = {m.nInputPlane*m.kH*m.kW, m.nOutputPlane*m.kH*m.kW}
+            elseif m.__typename == 'nn.SpatialConvolutionMM' then
+                var = {m.nInputPlane*m.kH*m.kW, m.nOutputPlane*m.kH*m.kW}
+            elseif m.__typename == 'nn.LateralConvolution' then
+                var = {m.nInputPlane*1*1, m.nOutputPlane*1*1}
+            elseif m.__typename == 'nn.VerticalConvolution' then
+                var = {1*m.kH*m.kW, 1*m.kH*m.kW}
+            elseif m.__typename == 'nn.HorizontalConvolution' then
+                var = {1*m.kH*m.kW, 1*m.kH*m.kW}
+            elseif m.__typename == 'nn.Linear' then
+                var = {m.weight:size(2), m.weight:size(1)}
+            elseif m.__typename == 'nn.TemporalConvolution' then
+                var = {m.weight:size(2), m.weight:size(1)}
+            end
+
+            var = 2/(var[1] + var[2])
+            m.weight=torch.randn(m.weight:size()):mul(var);
+            m.bias=torch.zeros(m.bias:size());
+            
+        end
+    end
+
+    return model
+end
+
+
 function makeMyNetwork(torch_file)
 
 
@@ -30,17 +64,18 @@ function makeMyNetwork(torch_file)
     seq_trunk:add(nn.View(128*10*10));
     seq_trunk:add(nn.Linear(128*10*10,512));
 
-    for idx=1,#seq_trunk do
-        if seq_trunk:get(idx).weight then
-            seq_trunk:get(idx).weight=torch.randn(seq_trunk:get(idx).weight:size()):div(100);
-        end
-        if seq_trunk:get(idx).bias then
-            seq_trunk:get(idx).bias=torch.zeros(seq_trunk:get(idx).bias:size());
-        end
-    end
+    -- for idx=1,#seq_trunk do
+    --     if seq_trunk:get(idx).weight then
+    --         seq_trunk:get(idx).weight=torch.randn(seq_trunk:get(idx).weight:size()):div(100);
+    --     end
+    --     if seq_trunk:get(idx).bias then
+    --         seq_trunk:get(idx).bias=torch.zeros(seq_trunk:get(idx).bias:size());
+    --     end
+    -- end
     -- make the combination conv unit weights
     -- seq_trunk:get(2).weight=torch.ones(seq_trunk:get(2).weight:size());
     -- seq_trunk:get(2).bias=torch.zeros(seq_trunk:get(2).bias:size());
+    seq_trunk = makeXavierGaussian(seq_trunk)
 	seq:add(seq_trunk);
 
 
@@ -51,28 +86,30 @@ function makeMyNetwork(torch_file)
 	score_branch:add(nn.Dropout(0.5));
 	score_branch:add(nn.Linear(1024,1));
 	
-    for idx=1,#score_branch do
-        if score_branch:get(idx).weight then
-            score_branch:get(idx).weight=torch.randn(score_branch:get(idx).weight:size()):div(100);
-        end
-        if score_branch:get(idx).bias then
-            score_branch:get(idx).bias=torch.zeros(score_branch:get(idx).bias:size());
-        end
-    end
+    -- for idx=1,#score_branch do
+    --     if score_branch:get(idx).weight then
+    --         score_branch:get(idx).weight=torch.randn(score_branch:get(idx).weight:size()):div(100);
+    --     end
+    --     if score_branch:get(idx).bias then
+    --         score_branch:get(idx).bias=torch.zeros(score_branch:get(idx).bias:size());
+    --     end
+    -- end
+    score_branch = makeXavierGaussian(score_branch)
 
 	local seg_branch=nn.Sequential();
 	seg_branch:add(nn.Linear(512,40*40));
 	seg_branch:add(nn.View(1,40,40));
 	seg_branch:add(nn.SpatialUpSamplingNearest(4));
 	
-    for idx=1,#seg_branch do
-        if seg_branch:get(idx).weight then
-            seg_branch:get(idx).weight=torch.randn(seg_branch:get(idx).weight:size()):div(100);
-        end
-        if seg_branch:get(idx).bias then
-            seg_branch:get(idx).bias=torch.zeros(seg_branch:get(idx).bias:size());
-        end
-    end
+    -- for idx=1,#seg_branch do
+    --     if seg_branch:get(idx).weight then
+    --         seg_branch:get(idx).weight=torch.randn(seg_branch:get(idx).weight:size()):div(100);
+    --     end
+    --     if seg_branch:get(idx).bias then
+    --         seg_branch:get(idx).bias=torch.zeros(seg_branch:get(idx).bias:size());
+    --     end
+    -- end
+    seg_branch = makeXavierGaussian(seg_branch)
 
 	local split_net=nn.ConcatTable();
 	split_net:add(score_branch);
@@ -93,7 +130,7 @@ function getLossSeg(x_seg,gt_mask)
 	loss:exp();
 	loss:add(1);
 	loss:log();
-    loss:div(56*56);
+    loss:div(40*40);
 	loss=loss:sum()
 	return loss;
 end
@@ -117,7 +154,7 @@ function getLossSegD(x_seg,gt_mask)
 	dloss:cmul(gt_mask);
 	dloss:mul(-1);
 	dloss:cdiv(deno);
-	dloss:div(56*56);
+	dloss:div(40*40);
 	return dloss;
 end
 
@@ -135,18 +172,11 @@ function getLossScoreD(x_score,gt_label)
 end
 
 local torch_file='/disk2/januaryExperiments/vgg_16/vgg16_onlyConv.dat';
-local deep_prop_file='/disk2/aprilExperiments/headC_160/withFlow_gaussian_all.dat'
-local out_dir='/disk3/maheen_data/headC_160/withFlow_gaussian_human';
+local deep_prop_file='/disk2/aprilExperiments/headC_160/withFlow_gaussian_softmax.dat'
+local out_dir='/disk3/maheen_data/headC_160/withFlow_gaussian_human_softmax';
 
--- net=makeMyNetwork(torch_file)
--- print (net)
--- torch.save(deep_prop_file,net);
--- net=torch.load(deep_prop_file);
--- print (net);
--- print (net:get(1):get(2):get(2))
--- print (torch.min(net:get(1):get(2):get(2).weight),torch.min(net:get(1):get(2):get(2).bias),
---     torch.min(net:get(1):get(2):get(3).weight),torch.min(net:get(1):get(2):get(3).bias));
-
+net=makeMyNetwork(torch_file)
+torch.save(deep_prop_file,net);
 
 local neg_file='/disk3/maheen_data/headC_160/neg_flos/negatives_onlyHuman_withFlow.txt'
 local pos_file='/disk3/maheen_data/headC_160/noFlow_gaussian_human/pos_flos/positives_onlyHuman_withFlow.txt'
@@ -216,7 +246,7 @@ print ('loading network');
 
 net = torch.load(deep_prop_file);
 -- net:get(2):get(2):add(nn.Tanh())
-print (torch.min(net:get(1):get(2):get(3).weight),torch.min(net:get(1):get(2):get(3).weight));
+-- print (torch.min(net:get(1):get(2):get(3).weight),torch.min(net:get(1):get(2):get(3).weight));
 
 print ('done loading network');
 -- print (net:get(1));

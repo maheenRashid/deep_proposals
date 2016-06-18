@@ -81,6 +81,8 @@ end
 function saveSegOnlyNetwork(network_file,out_file)
 	local net=torch.load(network_file);
 	local seg_branch=net:get(2):get(2);
+	seg_branch:add(nn.Tanh());
+	print (seg_branch)
 	torch.save(out_file,seg_branch);
 	
 end

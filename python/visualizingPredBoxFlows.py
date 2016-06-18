@@ -34,6 +34,23 @@ def createParams(type_Experiment):
                         'overwrite'];
                         
         params = namedtuple('Params_saveSegVizAll',list_params);
+    elif type_Experiment == 'saveFloVizAll':
+        list_params = ['mat_overlap_dir',
+                        'gt_dir',
+                        'thresh_overlap',
+                        'flo_viz_dir',
+                        'results_dir_meta',
+                        'path_to_im_canon',
+                        'out_dir_overlay_flo',
+                        'gt_color',
+                        'pred_color',
+                        'alpha_overlay',
+                        'w',
+                        'stride',
+                        'power_scale_range',
+                        'power_step_size',
+                        'num_threads'];
+        params = namedtuple('Params_saveFloVizAll',list_params);               
     else:
         params = None
 
@@ -148,6 +165,36 @@ def saveSegViz(im,alpha,img_name,out_dir_overlay_meta,pred_scores_dict,pred_boxe
 
     return img_list_all;
 
+def getFloOverlay(im,flos_boxes,alpha=0.5):
+
+    if len(im.shape)<3:
+        im=np.dstack((im,im,im));
+    
+    heatmap_big=np.zeros((im.shape))
+    heatmap_count=np.zeros((im.shape[0],im.shape[1]));
+
+    for flo_curr,box_curr in flos_boxes:
+        box_size=[box_curr[2]-box_curr[0],box_curr[3]-box_curr[1]];
+        flo_curr=cv2.resize(flo_curr,(box_size[1],box_size[0]));
+        to_crop=[0-box_curr[0],0-box_curr[1],box_curr[2]-im.shape[0],box_curr[3]-im.shape[1]];
+        to_crop=[max(val,0) for val in to_crop];
+        
+        flo_crop=flo_curr[to_crop[0]:flo_curr.shape[0]-to_crop[2],to_crop[1]:flo_curr.shape[1]-to_crop[3]];
+        flo_crop=flo_crop[:,:,2];
+
+        heatmap_curr=visualize.getHeatMap(flo_crop);
+
+        box_start=[max(0,box_curr[0]),max(0,box_curr[1])];
+        box_end=[min(heatmap_big.shape[0],box_start[0]+heatmap_curr.shape[0]),min(heatmap_big.shape[1],box_start[1]+heatmap_curr.shape[1])]        
+        
+        heatmap_big[box_start[0]:box_end[0],box_start[1]:box_end[1],:]=heatmap_big[box_start[0]:box_end[0],box_start[1]:box_end[1],:]+heatmap_curr[:box_end[0]-box_start[0],:box_end[1]-box_start[1],:];
+        heatmap_count[box_start[0]:box_end[0],box_start[1]:box_end[1]]=heatmap_count[box_start[0]:box_end[0],box_start[1]:box_end[1]]+1;
+    
+    heatmap_big[heatmap_count==0,:]=128;
+    heatmap_count[heatmap_count==0]=1;
+    heatmap_big=heatmap_big/np.dstack((heatmap_count,heatmap_count,heatmap_count));
+    img_fuse=visualize.fuseAndSave(im,heatmap_big,alpha);
+    return img_fuse;
 
 
 def saveImDict(img_name,im_size,path_to_predScores_meta,path_to_seg_meta,mat_overlap_file,
@@ -212,12 +259,9 @@ def script_saveSegVizAll(params):
     out_dir_im_dict = params.out_dir_im_dict;
     overwrite = params.overwrite;
 
-
-
     util.mkdir(out_dir_overlay_meta);   
     for scale_curr in scale_idx_range:
         util.mkdir(os.path.join(out_dir_overlay_meta,str(scale_curr)));
-    
     
     img_names=util.readLinesFromFile(img_names_txt);
 
@@ -263,38 +307,127 @@ def script_saveSegVizAll(params):
 
     visualize.writeHTML(out_file_html,img_paths_html,captions_html,height=height_width[0],width=height_width[1]);
     print out_file_html
-            
-def main():
-    print 'hello';
 
-    params_dict = {};
-    params_dict ['path_to_im_meta'] ='/disk3/disk2/mayExperiments/validation/rescaled_images';
-    params_dict ['path_to_im_canon'] = os.path.join(params_dict['path_to_im_meta'],'4');
-    params_dict ['path_to_predScores_meta'] ='/disk3/maheen_data/debugging_score_and_scale/npy_for_idx';
-    params_dict ['path_to_seg_meta'] ='/disk3/maheen_data/debugging_score_and_scale/seg';
-    params_dict ['path_to_mat_overlap'] ='/disk3/maheen_data/headC_160_noFlow_bbox/mat_overlaps_no_neg_1000';
-    params_dict ['path_to_score_mat_meta'] ='/disk3/maheen_data/headC_160_noFlow_bbox';
-    params_dict ['img_names_txt'] ='/disk3/maheen_data/debugging_score_and_scale/img_names.txt';
-    params_dict ['scale_idx_range'] = range(7);
-    params_dict ['stride'] =16;
-    params_dict ['w'] =160;
-    params_dict ['alpha'] =0.5;
-    params_dict ['num_to_pick'] =10;
-    params_dict ['out_dir_overlay_meta'] ='/disk3/maheen_data/debugging_score_and_scale/overlay_viz';
+
+def getPredBoxesAndInfoRel(gt_boxes,meta_info,thresh_overlap):
+    mat_overlap=meta_info['mat_overlap'];
+    boxes_include_idx=np.sum(mat_overlap>=thresh_overlap,axis=1)>0;
+
+    pred_boxes= meta_info['pred_boxes'];
+    pred_info = meta_info['pred_scores'];
+
+
+    pred_info_rel=pred_info[boxes_include_idx,:];
+    pred_boxes_rel=pred_boxes[boxes_include_idx,:];
+    return pred_boxes_rel,pred_info_rel    
+
+def getFloAndBoxes(pred_boxes_rel,pred_info_rel,im_size,score_mat_path,flo_rel_path,scales,w,stride):
+    flos_boxes=[];
+    for pred_info_curr in pred_info_rel:
+        scale_idx=int(pred_info_curr[1]);
+        row = pred_info_curr[2];
+        col = pred_info_curr[3];
+        scale_curr=scales[scale_idx];
+
+        score_mat_file=os.path.join(score_mat_path[0],str(scale_idx),score_mat_path[1]);
+        score_mat=np.load(score_mat_file)[0][0];
+        
+        bbox_containing=psr.getBoxContainingCanonical(row,col,im_size,scale_curr,score_mat.shape,stride,w)
+        bbox_containing=[int(val) for val in bbox_containing];
+        
+        flo_rel_file=os.path.join(flo_rel_path[0],str(scale_idx),flo_rel_path[1]+'_'+str(int(row))+'_'+str(int(col))+'.png');
+        flo_curr=scipy.misc.imread(flo_rel_file);
+        
+        flos_boxes.append((flo_curr,bbox_containing));
+    return flos_boxes
+
+def saveFloOverlay((mat_overlap_file,gt_file,im_file,thresh_overlap,score_mat_path,flo_rel_path,scales,w,stride,alpha_overlay,pred_color,gt_color,out_file)):
+    im=scipy.misc.imread(im_file)
+    im_size=im.shape;
+    gt_boxes=np.load(gt_file);
+    gt_boxes=np.array([psr.convertBBoxFormatToStandard(gt_box) for gt_box in gt_boxes]);
+    meta_info=np.load(mat_overlap_file);
+    pred_boxes_rel,pred_info_rel = getPredBoxesAndInfoRel(gt_boxes,meta_info,thresh_overlap)
+    flos_boxes = getFloAndBoxes(pred_boxes_rel,pred_info_rel,im_size,score_mat_path,flo_rel_path,scales,w,stride)
+    im_flo=getFloOverlay(im,flos_boxes,alpha_overlay);
+    boxes_all=np.vstack((pred_boxes_rel,gt_boxes));
+    colors=[pred_color]*pred_boxes_rel.shape[0]+[gt_color]*gt_boxes.shape[0];
+    visualize.plotBBox(im_flo,boxes_all,out_file,colors);
+
+def script_saveFloVizAll(params):
+    mat_overlap_dir = params.mat_overlap_dir
+    gt_dir = params.gt_dir
+    thresh_overlap = params.thresh_overlap
+    flo_viz_dir = params.flo_viz_dir
+    results_dir_meta = params.results_dir_meta
+    path_to_im_canon = params.path_to_im_canon
+    out_dir_overlay_flo = params.out_dir_overlay_flo
+    gt_color = params.gt_color
+    pred_color = params.pred_color
+    alpha_overlay = params.alpha_overlay
+    w = params.w
+    stride = params.stride
+    power_scale_range = params.power_scale_range
+    power_step_size = params.power_step_size
+    num_threads = params.num_threads
+
+    util.mkdir(out_dir_overlay_flo);
+    power_range=np.arange(power_scale_range[0],power_scale_range[1]+power_step_size,power_step_size);
+    scales=[2**val for val in power_range];
+    im_names=util.getFileNames(util.getFilesInFolder(mat_overlap_dir,'.npz'),ext=False);
+
+    args=[]
+    for im_name in im_names:
+        mat_overlap_file=os.path.join(mat_overlap_dir,im_name+'.npz');
+        flo_viz_pre=os.path.join(flo_viz_dir,im_name);
+        gt_file=os.path.join(gt_dir,im_name+'.npy');
+        im_file=os.path.join(path_to_im_canon,im_name+'.jpg');
+
+        score_mat_path = [results_dir_meta,im_name+'.npy']
+        flo_rel_path = [flo_viz_dir,os.path.join('flo_im',im_name)]
+        out_file=os.path.join(out_dir_overlay_flo,im_name+'.png');
+
+        arg=(mat_overlap_file,gt_file,im_file,thresh_overlap,score_mat_path,flo_rel_path,scales,w,stride,alpha_overlay,pred_color,gt_color,out_file);
+        args.append(arg);
+
+    p=multiprocessing.Pool(num_threads);
+    p.map(saveFloOverlay,args);
+    
+ 
+def main():
+    
+    out_file_html='/disk3/maheen_data/headC_160_withFlow_justHuman/overlay_flo_50_viz.html'
+    folders=['/disk3/maheen_data/headC_160_noFlow_justHuman/gt_overlap_50_viz','/disk3/maheen_data/headC_160_withFlow_justHuman/gt_overlap_50_viz','/disk3/maheen_data/headC_160_withFlow_justHuman/overlay_flo_50_viz'];
+    img_names=util.getFileNames(util.getFilesInFolder(folders[0],ext='.png'),ext=True);
+    height=500;
+    width=500;
+    captions=['no flo','with flo','boxes with flo']
+    visualize.writeHTMLForDifferentFolders(out_file_html,folders,captions,img_names,height=height,width=width);
+    print out_file_html;
+    return
+
+    params_dict={};
+    params_dict ['mat_overlap_dir'] = '/disk3/maheen_data/headC_160_withFlow_justHuman/mat_overlaps_1000';
+    params_dict ['gt_dir'] = '/disk3/maheen_data/val_anno_human_only';
+    params_dict ['thresh_overlap'] = 0.5;
+    params_dict ['flo_viz_dir'] = '/disk3/maheen_data/headC_160_withFlow_justHuman/im_with_padding/flo';
+    params_dict ['results_dir_meta'] = '/disk3/maheen_data/headC_160_withFlow_justHuman/results';
+    params_dict ['path_to_im_canon'] = '/disk3/maheen_data/headC_160_withFlow_justHuman/im/4';
+    params_dict ['out_dir_overlay_flo'] = '/disk3/maheen_data/headC_160_withFlow_justHuman/overlay_flo_50_viz';
+    params_dict ['gt_color'] = (255,0,0);
+    params_dict ['pred_color'] = (255,255,255);
+    params_dict ['alpha_overlay'] = 0.4;
+    params_dict ['w'] = 160;
+    params_dict ['stride'] = 16;
     params_dict ['power_scale_range'] = (-2,1);
     params_dict ['power_step_size'] = 0.5;
-    params_dict ['out_file_html'] = '/disk3/maheen_data/debugging_score_and_scale/seg.html';
-    params_dict ['height_width'] = [500,500];
-    params_dict ['num_threads'] = 32;
-    params_dict ['out_dir_im_dict'] = '/disk3/maheen_data/debugging_score_and_scale/im_dict';
-    params_dict ['overwrite'] = True;
+    params_dict ['num_threads'] =  multiprocessing.cpu_count();
 
+    params=createParams('saveFloVizAll');
+    params=params(**params_dict);
 
-    params = createParams('saveSegVizAll');
-    params = params(**params_dict);
-
-    script_saveSegVizAll(params)
-
+    script_saveFloVizAll(params)
+    pickle.dump(params._asdict(),open(os.path.join(params.out_dir_overlay_flo,'params_saveFloVizAll.p'),'wb'));
 
 
     
