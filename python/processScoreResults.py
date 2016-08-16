@@ -649,25 +649,58 @@ def script_saveRecallProposalCurve():
 
 
 def main():
-    script_saveRecallProposalCurve()
-    # script_saveMetaInformation()
-    # script_saveMatOverlapsVal()
 
-    return
+    # dir_mat='/disk3/maheen_data/headC_160_noFlow_bbox/mat_overlaps_no_neg_1000'
+    # im_names=util.getFileNames(util.getFilesInFolder(dir_mat,ext='.npz'),ext=False);
+    dir_meta='/disk2/mayExperiments/validation/rescaled_images';
+    # scale_idx_range=range(7);
+    # text_postfix='_all_5000.txt';
+    # for scale_idx in scale_idx_range:
+    #     dir_curr=os.path.join(dir_meta,str(scale_idx));
+    #     ims_all=[];
+    #     for im_name in im_names:
+    #         im_curr=os.path.join(dir_curr,im_name+'.jpg');
+    #         assert os.path.exists(im_curr);
+    #         ims_all.append(im_curr);
+    #     print len(ims_all),ims_all[0];
+    #     out_file_text=os.path.join(dir_meta,str(scale_idx)+text_postfix);
+    #     util.writeFile(out_file_text,ims_all);
+    # file_big=os.path.join(dir_meta,'6_all_5000.txt');
+    # file_big_split=os.path.join(dir_meta,'6_all_5000_split.txt');
+
+    # im_all=util.readLinesFromFile(file_big);
+    # im_bottom=im_all[-2500:];
+    # print len(im_bottom);
+    # im_top=im_all[:2500];
+    # # print len(im_top);
+    # # print file_big;
+    # # print file_big_split
+    # util.writeFile(file_big,im_top);
+    # util.writeFile(file_big_split,im_bottom);
+
+
+    # return
+    # script_saveRecallProposalCurve()
+    # # script_saveMetaInformation()
+    # # script_saveMatOverlapsVal()
+
+    # return
     
-    curr_range=range(5,7);
-    path_to_res='/disk3/maheen_data/headC_160_noFlow_bbox'
+    curr_range=range(6,7);
+    path_to_res='/disk3/maheen_data/headC_160_noFlow_bbox_retrain'
+    util.mkdir(path_to_res);
+    text_postfix='_all_5000_split.txt';
     path_to_text='/disk2/mayExperiments/validation/rescaled_images'
-    out_files=[os.path.join(path_to_text,str(num)+'_leftover.txt') for num in curr_range];
+    out_files=[os.path.join(path_to_text,str(num)+text_postfix) for num in curr_range];
     out_dirs=[os.path.join(path_to_res,str(num)) for num in curr_range];
     limit=-1
     gpu=1;
     path_to_test_file='/home/maheenrashid/Downloads/deep_proposals/torch_new/test_command_line_bigIm.th';
-    model='/disk2/aprilExperiments/headC_160/noFlow_gaussian_all_actual/intermediate_resume_2/model_all_70000.dat';
-    
+    # model='/disk2/aprilExperiments/headC_160/noFlow_gaussian_all_actual/intermediate_resume_2/model_all_70000.dat';
+    model='/disk3/maheen_data/headC_160/noFlow_gaussian_all_softmax/final/model_all_final.dat';
     gpu=1;
     limit=-1;
-    out_file_sh=os.path.join(path_to_res,'test_leftover_big.sh');
+    out_file_sh=os.path.join(path_to_res,'test_big_split.sh');
     script_writeTestSH(out_files,out_dirs,out_file_sh,path_to_test_file,model,limit,gpu,overwrite=False)
     print out_file_sh
 

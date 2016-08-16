@@ -1,0 +1,130 @@
+require 'paths';
+require 'cutorch';
+npy4th = require 'npy4th'
+
+function main()
+
+	
+	-- local meta_dirs={'/disk3/maheen_data/headC_160/noFlow_human_debug','/disk3/maheen_data/headC_160/withFlow_human_debug'};
+	-- local in_dirs={'correct','incorrect'};
+	-- local meta_dirs={'/disk3/maheen_data/headC_160/withFlow_human_debug'};
+	-- local in_dirs={'correct_16'}
+	
+	local meta_dirs={'/disk3/maheen_data/headC_160_withFlow_human_xavier_unit_floStumpPretrained_fullTraining'};
+	local in_dirs={'gradient_checks'}
+	
+
+	local dirs={};
+	for meta_dir_idx=1,#meta_dirs do
+		for in_dir_idx=1,#in_dirs do
+			dir_curr=paths.concat(meta_dirs[meta_dir_idx],in_dirs[in_dir_idx]);
+			dirs[#dirs+1]=dir_curr;
+		end
+	end
+
+	file_pre='grads_weights_dloss_';
+	num_iters=5;
+	iter_training={5000, 10000, 15000, 20000, 25000, 30000, 35000, 40000, 45000}
+	-- {5000,25000,45000,65000,85000,100000};
+	-- {2000, 8000, 14000, 20000, 26000, 32000}
+	-- {5000,25000,45000,65000,85000,100000};
+
+
+	-- for dir_meta_curr_idx=1,#dirs do
+	-- 	local dir_meta_curr=dirs[dir_meta_curr_idx]
+
+	-- 	for iter_training_idx=1,#iter_training do
+	-- 		local iter_training_curr=iter_training[#iter_training];
+	-- 		local dir_curr=paths.concat(dir_meta_curr,iter_training_curr);	
+	-- 		local file_curr=paths.concat(dir_curr,file_pre..'1.dat');
+	-- 		local data = torch.load(file_curr);
+	-- 		local first_layer=data.weights[1];
+	-- 		print (first_layer:size())
+	-- 		local out_file_curr=paths.concat(dir_curr,'im_layer_weights_1.npy');
+	-- 		print (out_file_curr);
+	-- 		npy4th.savenpy(out_file_curr,first_layer:double());
+
+	-- 		local first_layer=data.weights[27];
+	-- 		print (first_layer:size())
+	-- 		local out_file_curr=paths.concat(dir_curr,'flo_layer_weights_1.npy');
+	-- 		print (out_file_curr);
+	-- 		npy4th.savenpy(out_file_curr,first_layer:double());
+	-- 		-- break;
+	-- 	end
+	-- 	-- break;
+	-- end
+
+
+	for dir_meta_curr_idx=1,#dirs do
+		local dir_meta_curr=dirs[dir_meta_curr_idx]
+
+		for iter_training_idx=1,#iter_training do
+			local iter_training_curr=iter_training[iter_training_idx];
+			local dir_curr=paths.concat(dir_meta_curr,iter_training_curr);
+
+			seg_loss_all={};
+			score_loss_all={};
+			for i=1,num_iters do
+				local file_curr=paths.concat(dir_curr,file_pre..i..'.dat');
+				local data = torch.load(file_curr);
+				-- print (data.loss_score,data.loss_seg);
+				if (i>1) then
+					seg_loss_all[#seg_loss_all+1]=data.loss_seg;
+					score_loss_all[#score_loss_all+1]=data.loss_score;
+
+					-- print (data.loss_score:size(),data.loss_seg:size())
+					-- dloss_score[#dloss_score+1]=data.dloss_score;
+					-- dloss_seg[#dloss_seg+1]=data.dloss_seg;
+
+					local out_file_dloss_seg=paths.concat(dir_curr,'dloss_seg_'..i..'.npy');
+					local out_file_dloss_score=paths.concat(dir_curr,'dloss_score_'..i..'.npy');
+					npy4th.savenpy(out_file_dloss_seg,data.dloss_seg);
+					npy4th.savenpy(out_file_dloss_score,data.dloss_score);
+				end
+
+				local grad_mag={};
+				local weight_mag={};
+
+				for layer_no=1,#data.grads do
+					local grad_curr=data.grads[layer_no]:double();
+					local weight_curr=data.weights[layer_no]:double();
+					local grad_mag_curr=torch.norm (grad_curr:view(grad_curr:nElement()));
+					-- print (grad_mag_curr);
+					-- grad_mag_curr=grad_mag_curr/grad_curr:nElement();
+					-- print (grad_mag_curr);
+					local weight_mag_curr=torch.norm(weight_curr:view(weight_curr:nElement()));
+					-- weight_mag_curr=weight_mag_curr/weight_curr:nElement();
+					grad_mag[#grad_mag+1]=grad_mag_curr;
+					weight_mag[#weight_mag+1]=weight_mag_curr;
+
+				end
+				local out_file_grad=paths.concat(dir_curr,'grad_mag_'..i..'.npy');
+				local out_file_weight=paths.concat(dir_curr,'weight_mag_'..i..'.npy');
+				print (file_curr,out_file_grad,out_file_weight)
+				npy4th.savenpy(out_file_grad,torch.Tensor(grad_mag));
+				npy4th.savenpy(out_file_weight,torch.Tensor(weight_mag));
+				-- break
+			end
+			local out_file_seg=paths.concat(dir_curr,'loss_seg.npy');
+			local out_file_score=paths.concat(dir_curr,'loss_score.npy');
+			print (out_file_seg,out_file_score);
+			seg_loss_all=torch.Tensor(seg_loss_all);
+			score_loss_all=torch.Tensor(score_loss_all);
+			npy4th.savenpy(out_file_seg,seg_loss_all);
+			npy4th.savenpy(out_file_score,score_loss_all);
+		end
+	end
+
+
+	-- local data={grads=grads,
+ --                weights=weights,
+ --                dloss_seg=dlosses_seg[#dlosses_seg],
+ --                dloss_score=dlosses_score[#dlosses_score],
+ --                loss_seg=losses_seg[#losses_seg],
+ --                loss_score=losses_score[#losses_score]};
+
+
+
+end
+
+main();

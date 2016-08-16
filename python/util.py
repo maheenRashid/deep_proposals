@@ -171,3 +171,18 @@ def getAllSubDirectories(meta_dir):
 def getFilesInFolder(folder,ext):
     list_files=[os.path.join(folder,file_curr) for file_curr in os.listdir(folder) if file_curr.endswith(ext)];
     return list_files;     
+
+def getColumnsFromLines(lines,split_by=' '):
+    line_1=lines[0];
+    line_1=line_1.split(split_by);
+    len_split=len(line_1);
+    line_split_all=[];
+    for line in lines:
+        line_split=line.split(split_by);
+        assert len(line_split)==len_split;
+
+        line_split_all.append(line_split);
+
+    line_split_all=zip(*line_split_all);
+    line_split_all=[list(line_split_curr) for line_split_curr in line_split_all];
+    return line_split_all;

@@ -68,6 +68,45 @@ def script_saveBboxFiles(anno,out_dir,im_pre,idx_all,cat_id):
 
 
 
+def script_saveBboxFilesByImId(anno,out_dir,im_pre,img_idx_list,cat_id):
+    
+    bbox_dict={};
+
+    idx_all=[];
+    for idx in range(len(anno)):
+        if anno[idx]['iscrowd']==0:
+            cat_id_curr = anno[idx]['category_id'];
+            im_id = anno[idx]['image_id'];
+            if cat_id == cat_id_curr and im_id in img_idx_list:
+                idx_all.append(idx);
+
+
+    idx=0;
+    for idx in idx_all:
+        if idx%100==0:
+            print idx;
+        # print anno[idx]
+        assert anno[idx]['iscrowd']==0;
+        assert anno[idx]['category_id']==cat_id;
+    
+        im_id=anno[idx]['image_id'];
+        bbox=anno[idx]['bbox'];
+        
+        im_path=dp.addLeadingZeros(im_id,os.path.join(out_dir,im_pre),'.npy');
+        if im_path in bbox_dict:
+            bbox_dict[im_path].append(bbox);
+        else:
+            bbox_dict[im_path]=[bbox];
+
+    for im_path in bbox_dict.keys():
+        bbox_curr=bbox_dict[im_path];
+        bbox_curr=np.array(bbox_curr);
+        print im_path
+        # raw_input();
+        np.save(im_path,bbox_curr);
+
+
+
 def script_saveHumanOnlyPos():
     path_to_anno='/disk2/ms_coco/annotations';    
     anno_file='instances_train2014.json';
@@ -265,6 +304,38 @@ def getMeanRGB((flo_path,idx)):
 
 
 def main():
+
+
+
+    # out_file='/disk2/aprilExperiments/positives_160_human.txt'
+    # out_dir='/disk2/aprilExperiments/negatives_npy_onlyHuman';
+    # util.mkdir(out_dir);
+    im_pre='COCO_val2014_'
+
+    # lines=util.readLinesFromFile(out_file);
+    # img_files=[line[:line.index(' ')] for line in lines];
+
+    anno_dir='/disk3/maheen_data/headC_160_noFlow_justHuman/im/0';
+    out_anno_dir='/disk3/maheen_data/val_anno_human_only_300';
+    util.mkdir(out_anno_dir);
+    img_files=util.getFilesInFolder(anno_dir,'.jpg');
+    img_names=util.getFileNames(img_files,ext=False);
+    
+    # img_name_split=img_name.split('_');
+    idx_all=[int(img_name.split('_')[-1]) for img_name in img_names];
+
+    print len(img_names),len(idx_all),idx_all[0];
+    cat_id=1;
+
+    path_to_anno='/disk2/ms_coco/annotations';
+    anno_file='instances_val2014.json';
+    anno=json.load(open(os.path.join(path_to_anno,anno_file),'rb'))['annotations'];
+    
+    # script_saveBboxFiles(anno,out_anno_dir,im_pre,idx_all,cat_id)
+    script_saveBboxFilesByImId(anno,out_anno_dir,im_pre,idx_all,cat_id)
+
+
+    return
     # person 1
     
     # neg_file='/disk2/marchExperiments/deep_proposals/negatives_onlyHuman.txt'

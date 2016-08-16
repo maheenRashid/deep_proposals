@@ -14,6 +14,8 @@ import visualize;
 from collections import namedtuple
 import multiprocessing;
 import shutil;
+import glob;
+import time;
 
 def createParams(type_Experiment):
     if type_Experiment == 'getResultsForCatSpecific':
@@ -101,6 +103,7 @@ def createParams(type_Experiment):
         params = namedtuple('Params_getDataForTestingWithFlo',list_params);
     elif type_Experiment=='saveWithFloResultsInCompatibleFormat':
         list_params = ['dir_npy',
+                        'dir_out',
                         'test_data_file',
                         'batchsize',
                         'num_threads'];
@@ -375,11 +378,14 @@ def script_saveMatOverlapsVal(params):
 
     im_names=util.getFileNames(util.getFilesInFolder(dir_result_check,ext='_box.npy'),ext=False);
     im_names=[im_name[:im_name.rindex('_')] for im_name in im_names];
+    print len(im_names);
 
     error_files=[];
     im_names_to_keep=[];
     for im_name in im_names:
+
         gt_file=os.path.join(dir_gt_boxes,im_name+'.npy');
+        # print dir_gt_boxes
         if not os.path.exists(gt_file):
             error_files.append(gt_file);
         else:
@@ -396,7 +402,7 @@ def script_saveMatOverlapsVal(params):
             continue;
 
         args.append((im_name,im_path_canonical,dir_meta_test,scales,dir_gt_boxes,out_file,stride,w,top,idx_im_name))
-
+    # raw_input();
     # print len(args);
     # print args[0]
     p=multiprocessing.Pool(multiprocessing.cpu_count());
@@ -505,8 +511,6 @@ def getCountsCorrectByIdx((mat_overlap,img_idx_curr)):
     # print counts_correct[2][:10]
     return counts_correct;
     # raw_input();
-
-
 
 
 def script_saveRecallCurveByImageIdx(meta_file,out_file_plot):
@@ -669,27 +673,99 @@ def script_getDataForTestingWithFlo(params):
             file_rec[out_dir_curr]=[img_path];
             util.mkdir(out_dir_curr);
 
+    print file_rec.keys();
+    for k in file_rec.keys():
+        print k,len(file_rec[k]);
 
-    for out_dir_curr in file_rec.keys():
-        img_paths = file_rec[out_dir_curr];
-        
-        if continue_count<=2:
-            po.NUM_THREADS = num_threads;
-            po.script_saveFlos(img_paths,out_dir_curr,gpu,caffe_model_file,clusters_file,overwrite=False);
-        
-        flo_dir=os.path.join(out_dir_curr,'flo_files');
-        match_info_file=os.path.join(out_dir_curr,'match_info.txt');
-        
-        files=util.getFilesInFolder(flo_dir,'.flo');
-        assert len(files)==len(img_paths);
+    # return
 
-        out_dir_flo_im_curr=os.path.join(out_dir_curr,'flo_im');
-        util.mkdir(out_dir_flo_im_curr);
+    batch_size_flo=5000;
+    count_all=0;
+    count_done=0;
+    for out_dir_curr_all in file_rec.keys():
+        img_paths_all = file_rec[out_dir_curr_all];
         
-        if continue_count<=3:
-            dp.saveFlowImFromFloDir(flo_dir,match_info_file,out_dir_flo_im_curr)
+        
+        batch_idx_range=util.getIdxRange(len(img_paths_all),batch_size_flo);
+        for batch_no,batch_start in enumerate(batch_idx_range[:-1]):
+            batch_end=batch_idx_range[batch_no+1];
+            img_paths=img_paths_all[batch_start:batch_end];
+            
+            out_dir_curr=os.path.join(out_dir_curr_all,str(batch_no));
+            util.mkdir(out_dir_curr);
+            
+            out_dir_flo_im_curr=os.path.join(out_dir_curr,'flo_im');
+            util.mkdir(out_dir_flo_im_curr);
+            
+            img_paths=[img_path for im_name,img_path in zip(util.getFileNames(img_paths,ext=False),img_paths) if not os.path.exists(os.path.join(out_dir_flo_im_curr,im_name+'.png'))];
 
+            if len(img_paths) :
+                if continue_count<=2:
+                    po.NUM_THREADS = num_threads;
+                    po.script_saveFlos(img_paths,out_dir_curr,gpu,caffe_model_file,clusters_file,overwrite=True);
+                
+                flo_dir=os.path.join(out_dir_curr,'flo_files');
+                match_info_file=os.path.join(out_dir_curr,'match_info.txt');
+                
+                # files=util.getFilesInFolder(flo_dir,'.flo');
+                # assert len(files)==len(img_paths);
+
+                if continue_count<=3:
+                    dp.saveFlowImFromFloDir(flo_dir,match_info_file,out_dir_flo_im_curr)
+
+                shutil.rmtree(flo_dir);
+                shutil.rmtree(os.path.join(out_dir_curr,'results'));
+
+                count_all+=1;
+            else:
+                count_done+=1;
+
+            # print batch_no,count_all,count_done;
+        print out_dir_curr_all,count_all,count_done;
+    print out_dir_curr_all,count_all,count_done;
+        #     break
+        # break
+    return
+    lines_to_write=[];
+    for out_dir_curr_all in file_rec.keys():
+
+        img_paths_all = file_rec[out_dir_curr_all];
+        
+        batch_idx_range=util.getIdxRange(len(img_paths_all),batch_size_flo);
+        
+        im_files_to_write=[];
+        flo_im_files_to_write=[];
     
+        for batch_no,batch_start in enumerate(batch_idx_range[:-1]):
+            if batch_no<=3:
+                continue;
+
+            batch_end=batch_idx_range[batch_no+1];
+            img_paths=img_paths_all[batch_start:batch_end];
+            out_dir_curr=os.path.join(out_dir_curr_all,str(batch_no));
+            
+            out_dir_flo_im_curr=os.path.join(out_dir_curr,'flo_im');
+
+            flo_im_paths=[os.path.join(out_dir_flo_im_curr,im_name+'.png') for im_name in util.getFileNames(img_paths,ext=False)];
+
+            for flo_im_curr in flo_im_paths:
+                assert os.path.exists(flo_im_curr);
+
+            im_files_to_write.extend(img_paths);
+            flo_im_files_to_write.extend(flo_im_paths);
+
+            
+            
+            lines_to_write_curr=[a+' '+b for a,b in zip(im_files_to_write,flo_im_files_to_write)]
+            lines_to_write.extend(lines_to_write_curr);           
+            print out_dir_curr_all[out_dir_curr_all.rindex('/')+1:],batch_no,len(batch_idx_range)-1,len(lines_to_write);
+            
+            if batch_no==8:
+                break;
+
+    util.writeFile(out_file_test,lines_to_write);
+
+    return
     lines_to_write=[];
     for im_dir in file_rec.keys():
         im_files=file_rec[im_dir];
@@ -746,6 +822,7 @@ def script_sanityCheckFloCrops(dir_npy,dir_im,scale_idx_range=range(7)):
 
 
 def script_saveWithFloResultsInCompatibleFormat(params):
+    dir_out = params.dir_out;
     dir_npy = params.dir_npy;
     test_data_file = params.test_data_file;
     batchsize = params.batchsize;
@@ -763,7 +840,7 @@ def script_saveWithFloResultsInCompatibleFormat(params):
     folder_im_str=np.array(folder_im_str);
 
     uni_folder_im_str=np.unique(folder_im_str);
-    
+        
     args=[];
     for idx_file,folder_im_str_curr in enumerate(uni_folder_im_str):
 
@@ -771,121 +848,412 @@ def script_saveWithFloResultsInCompatibleFormat(params):
 
         folder_curr=folder_im_str_curr[:folder_im_str_curr.index('_')];
         im_pre=folder_im_str_curr[folder_im_str_curr.index('_')+1:];
-        out_folder_curr=os.path.join(dir_npy,folder_curr);
+        out_folder_curr=os.path.join(dir_out,folder_curr);
         util.mkdir(out_folder_curr);
         out_file_pre=os.path.join(out_folder_curr,im_pre);
+        # print folder_im_str_curr,
+        # print out_file_pre,batchsize,len(score_files),len(ims),folder_im_str,idx_file
         args.append((folder_im_str_curr,out_file_pre,batchsize,score_files,ims,folder_im_str,idx_file));
+        # break;
+
+    print len(args);
 
     p=multiprocessing.Pool(num_threads);
     p.map(psr.saveWithFloResultsInCompatibleFormatMP,args);
 
+def script_runFullResultGenerationStandard(dir_gt_boxes,dir_canon_im,dir_meta_test,dir_meta_out,dir_im,overwrite):
+    params_dict={};
+    params_dict['dir_gt_boxes'] = dir_gt_boxes;    
+    params_dict['dir_canon_im'] = dir_canon_im;
+    params_dict['dir_meta_test'] = dir_meta_test;
+    params_dict['dir_result_check'] = os.path.join(params_dict['dir_meta_test'],'4');
+    params_dict['power_scale_range'] = (-2,1);
+    params_dict['power_step_size'] = 0.5
+    params_dict['top'] = 1000;
+    params_dict['stride'] = 16;
+    params_dict['w'] = 160;
+    params_dict['out_dir_overlap'] = os.path.join(dir_meta_out,'mat_overlaps_'+str(params_dict['top']));
+    params_dict['overwrite'] = overwrite;
+    params=createParams('saveMatOverlapsVal');
+    params=params(**params_dict);
+    script_saveMatOverlapsVal(params);
+    pickle.dump(params._asdict(),open(os.path.join(params.out_dir_overlap,'params.p'),'wb'));
 
+    out_dir_overlap = params_dict['out_dir_overlap'];
+    params_dict={};
+    params_dict['out_dir_overlap'] = out_dir_overlap
+    params_dict['out_file'] = os.path.join(dir_meta_out,'meta_info_multi.p');
+    params_dict['thresh_overlap'] = np.arange(0.5,1,0.05);
+    params=createParams('saveMetaMatOverlapInfo');
+    params=params(**params_dict);
+    script_saveMetaMatOverlapInfoMultiThresh(params)
+    pickle.dump(params._asdict(),open(os.path.join(params.out_dir_overlap,'params_saveMetaInfo_multi.p'),'wb'));
+
+    meta_file=os.path.join(dir_meta_out,'meta_info_multi.p');
+    out_file_plot=meta_file[:meta_file.rindex('.')]+'.png';
+    script_saveRecallCurve(meta_file,out_file_plot)
+
+    params_dict={};
+    params_dict['dir_im']=dir_im;
+    params_dict['dir_gt_boxes']=dir_gt_boxes;    
+    params_dict['dir_mat_overlap']=out_dir_overlap;
+    params_dict['num_to_pick']=10;
+    params_dict['dir_overlap_viz']=os.path.join(dir_meta_out,'top_10_viz');
+    params_dict['pred_color']=(255,255,255)
+    params_dict['gt_color']=(255,0,0);
+    params_dict['num_threads']=multiprocessing.cpu_count();
+    params_dict['overwrite']=overwrite;
+
+    params=createParams('saveAllTopPredViz');
+    params=params(**params_dict);
+    script_saveAllTopPredViz(params);
+    pickle.dump(params._asdict(),open(os.path.join(params.dir_overlap_viz,'params.p'),'wb'));
+
+    params_dict={};
+    params_dict['dir_im']=dir_im;
+    params_dict['dir_gt_boxes']=dir_gt_boxes;    
+    params_dict['dir_mat_overlap']=out_dir_overlap;
+    params_dict['dir_overlap_viz']=os.path.join(dir_meta_out,'gt_overlap_50_viz');
+    params_dict['overlap_thresh']=0.5;
+    params_dict['pred_color']=(255,255,255)
+    params_dict['gt_color']=(255,0,0);
+    params_dict['num_threads']=multiprocessing.cpu_count();
+    params_dict['overwrite']=overwrite;
+
+    params=createParams('saveAllWithGTOverlap');
+    params=params(**params_dict);
+    script_saveAllWithGTOverlap(params);
+    pickle.dump(params._asdict(),open(os.path.join(params.dir_overlap_viz,'params.p'),'wb'));
+
+
+def saveFloFileList((im_name,out_file,all_folders)):
+    files_im=[];
+    for folder_curr in all_folders:
+        folder_files=util.readLinesFromFile(folder_curr+'.txt');
+        folder_file_names=util.getFileNames(folder_files);
+
+        files_all=[file_curr for file_curr,file_name in zip(folder_files,folder_file_names) if file_name.startswith(im_name)]
+        files_im.append(files_all);
+    
+    files_im=[file_curr for file_list in files_im for file_curr in file_list];
+    files_im=np.array(files_im);
+    
+    np.save(out_file,files_im);
+
+def saveFolderIndexFile():
+    pass;
+    # print len(all_folders);
+    # print all_folders[0];
+    # print folder_count;
+
+    # out_file_commands=os.path.join(flo_dir_meta,'commands_to_get_list.sh');
+    # commands_all=[];
+    # for folder_curr in all_folders:
+    #     command_curr = 'find '+folder_curr+'/flo_im/*.png >> '+folder_curr+'.txt';
+    #     print command_curr;
+    #     commands_all.append(command_curr);
+
+    # util.writeFile(out_file_commands,commands_all);
+    # print out_file_commands;
+
+def writeTestFloFile(im_paths,im_folder_meta,out_file_test):
+    lines_to_write=[];
+    for im_path in im_paths:
+        flo_files=np.load(im_path);
+        flo_file_names=util.getFileNames(flo_files,ext=False);
+        for flo_file,flo_file_name in zip(flo_files,flo_file_names):
+            scale_curr=flo_file.rsplit('/',4);
+            scale_curr=scale_curr[1];
+            im_file=os.path.join(im_folder_meta,scale_curr,flo_file_name+'.jpg');
+            line_curr=im_file+' '+flo_file;
+            lines_to_write.append(line_curr);
+
+
+    print len(lines_to_write);
+    util.writeFile(out_file_test,lines_to_write);
+
+    # print im_file;
+    # print flo_file;
+    # assert os.path.exists(im_file);
+    # raw_input();
 
 def main():
+    dir_gt_boxes='/disk3/maheen_data/val_anno_human_only_300'
+    dir_canon_im='/disk3/maheen_data/headC_160_withFlow_justHuman_retrain/im_rem/4';
+    dir_meta_test='/disk3/maheen_data/headC_160_withFlow_human_xavier_unit_floStumpPretrained_fullTraining/results_res_30000_compiled'
+    dir_meta_out='/disk3/maheen_data/headC_160_withFlow_human_xavier_unit_floStumpPretrained_fullTraining/accuracy'
 
-    mat_overlap_dir='/disk3/maheen_data/headC_160_noFlow_justHuman/mat_overlaps_1000';
-    result_dir='/disk3/maheen_data/headC_160_noFlow_justHuman/results';
-    file_names=util.getFileNames(util.getFilesInFolder(mat_overlap_dir,ext='.npz'),ext=False);
-    scale_idx_range=range(7);
-    files_to_del=[];
-    for scale_idx in scale_idx_range:
-        scale_idx = str(scale_idx);
-        dir_curr=os.path.join(result_dir,scale_idx);
-        for file_name in file_names:
-            file_curr_box=os.path.join(dir_curr,file_name+'_box.npy');
-            file_curr_score=os.path.join(dir_curr,file_name+'.npy');
-            assert os.path.exists(file_curr_box);
-            assert os.path.exists(file_curr_score);
-            files_to_del.append(file_curr_box);
-            files_to_del.append(file_curr_score);
-    print len(file_names);
-    print len(files_to_del);
-
-    for file_to_del in files_to_del:
-        os.remove(file_to_del);
+    util.mkdir(dir_meta_out);
+    overwrite=True;
+    dir_im='/disk2/ms_coco/val2014'
+    script_runFullResultGenerationStandard(dir_gt_boxes,dir_canon_im,dir_meta_test,dir_meta_out,dir_im,overwrite)
 
 
     return
-    # params_dict={};
-    # params_dict['dir_im']='/disk2/ms_coco/val2014';
-    # params_dict['dir_gt_boxes']='/disk3/maheen_data/val_anno_human_only';    
-    # params_dict['dir_mat_overlap']='/disk3/maheen_data/headC_160_noFlow_justHuman_retrain/mat_overlaps_1000';
-    # params_dict['dir_overlap_viz']='/disk3/maheen_data/headC_160_noFlow_justHuman_retrain/gt_overlap_50_viz'
-    # params_dict['overlap_thresh']=0.5;
-    # params_dict['pred_color']=(255,255,255)
-    # params_dict['gt_color']=(255,0,0);
-    # params_dict['num_threads']=multiprocessing.cpu_count();
-    # params_dict['overwrite']=True;
+    params_dict={};
+    
+    dir_meta='/disk3/maheen_data/headC_160_withFlow_human_xavier_unit_floStumpPretrained_fullTraining'
+    # '/disk3/maheen_data/headC_160_withFlow_justHuman_retrain/test_train_data';
+
+    dir_out = os.path.join(dir_meta,'results_res_30000_compiled');
+    util.mkdir(dir_out);
+    test_data_txt_dir = os.path.join(dir_meta,'test_files_split');
+    test_data_res_dir = os.path.join(dir_meta,'results_res_30000');
 
 
-    # params=createParams('saveAllWithGTOverlap');
-    # params=params(**params_dict);
-    # script_saveAllWithGTOverlap(params);
-    # pickle.dump(params._asdict(),open(os.path.join(params.dir_overlap_viz,'params.p'),'wb'));
+    for batch_no in range(6):
+        params_dict['dir_npy'] = os.path.join(test_data_res_dir,str(batch_no));
+        params_dict['dir_out'] = dir_out
+        params_dict['test_data_file'] = os.path.join(test_data_txt_dir,str(batch_no)+'.txt')
+        params_dict['batchsize'] = 32;
+        params_dict['num_threads'] = multiprocessing.cpu_count();
 
-    # return
-    # params_dict={};
-    # params_dict['dir_im']='/disk2/ms_coco/val2014';
-    # params_dict['dir_gt_boxes']='/disk3/maheen_data/val_anno_human_only';    
-    # params_dict['dir_mat_overlap']='/disk3/maheen_data/headC_160_noFlow_justHuman_retrain/mat_overlaps_1000';
-    # params_dict['num_to_pick']=10;
-    # params_dict['dir_overlap_viz']='/disk3/maheen_data/headC_160_noFlow_justHuman_retrain/top_10_viz'
-    # params_dict['pred_color']=(255,255,255)
-    # params_dict['gt_color']=(255,0,0);
-    # params_dict['num_threads']=multiprocessing.cpu_count();
-    # params_dict['overwrite']=False;
+        
+        params=createParams('saveWithFloResultsInCompatibleFormat');
+        params=params(**params_dict);
+        script_saveWithFloResultsInCompatibleFormat(params);
+        pickle.dump(params._asdict(),open(os.path.join(params.dir_out,'params.p'),'wb'));
 
-    # params=createParams('saveAllTopPredViz');
-    # params=params(**params_dict);
-    # script_saveAllTopPredViz(params);
-    # pickle.dump(params._asdict(),open(os.path.join(params.dir_overlap_viz,'params.p'),'wb'));
+    return
+    dir_test='/disk3/maheen_data/headC_160_withFlow_justHuman_retrain'
+    flo_dir_meta=os.path.join(dir_test,'im_with_padding','flo');
+    scale_idx_range=range(7);
+    
+    # out_dir_test_files=os.path.join(dir_test,'test_files_split');
+    # util.mkdir(out_dir_test_files);
+    im_folder_meta=os.path.join(dir_test,'im_with_padding');
+    im_folder_full_im=os.path.join(dir_test,'im_rem')
+
+    out_dir_im_lists = os.path.join(im_folder_meta,'flo_im_path_by_im');
+    print out_dir_im_lists
+    util.mkdir(out_dir_im_lists);
+
+    batch_size=50;
+
+    im_path_files=util.getFilesInFolder(out_dir_im_lists,'.npy');
+    batch_idx = util.getIdxRange(len(im_path_files),batch_size);
+
+    out_dir='/disk3/maheen_data/headC_160_withFlow_human_xavier_unit_floStumpPretrained_fullTraining';
+    util.mkdir(out_dir);
+    
+    out_dir_test_files=os.path.join(out_dir,'test_files_split');
+    util.mkdir(out_dir_test_files);
+    
+    out_dir_res=os.path.join(out_dir,'results_res_30000');
+    util.mkdir(out_dir_res);
+
+    for idx_batch_idx,start_idx in enumerate(batch_idx[:-1]):
+        end_idx=batch_idx[idx_batch_idx+1];
+        im_paths=im_path_files[start_idx:end_idx];
+        out_file_test=os.path.join(out_dir_test_files,str(idx_batch_idx)+'.txt');
+        # print out_file_test;
+        # print len(im_paths);
+        writeTestFloFile(im_paths,im_folder_meta,out_file_test);
+
+        print 'th /home/maheenrashid/Downloads/deep_proposals/torch_new/test_command_line_flow.th -model /disk3/maheen_data/headC_160/withFlow_human_xavier_unit_floStumpPretrained_fullTraining_res/intermediate/model_all_30000.dat -testFile '+ out_file_test+' -outDir '+out_dir_res+'/'+str(idx_batch_idx);
+
+
+    return
+
+    dir_gt_boxes='/disk2/aprilExperiments/negatives_npy_onlyHuman';
+    dir_canon_im='/disk3/maheen_data/headC_160_noFlow_justHuman_retrain/train_data_test/im/4';
+    # dir_meta_test='/disk3/maheen_data/headC_160_withFlow_justHuman_retrain/results_res';
+    # dir_meta_test='/disk3/maheen_data/headC_160_noFlow_justHuman_retrain/results';
+    # dir_meta_out='/disk3/maheen_data/headC_160_withFlow_justHuman_retrain/res';
+
+    # dir_meta_test='/disk3/maheen_data/headC_160_withFlow_justHuman_retrain/results_rem_compiled'
+    # dir_meta_out='/disk3/maheen_data/headC_160_withFlow_justHuman_retrain/results_300_final'    
+
+    # dir_meta_test='/disk3/maheen_data/headC_160_withFlow_justHuman_retrain/test_train_data/results_200000_compiled'
+    # dir_meta_out='/disk3/maheen_data/headC_160_withFlow_justHuman_retrain/test_train_data/accuracy_200000'    
+    dir_meta_test='/disk3/maheen_data/headC_160_noFlow_justHuman_retrain/train_data_test/results'
+    dir_meta_out='/disk3/maheen_data/headC_160_noFlow_justHuman_retrain/train_data_test/accuracy'
+
+    util.mkdir(dir_meta_out);
+    overwrite=True;
+    dir_im='/disk2/ms_coco/train2014'
+    script_runFullResultGenerationStandard(dir_gt_boxes,dir_canon_im,dir_meta_test,dir_meta_out,dir_im,overwrite)
+
+
+    return
+    params_dict={};
+    
+    dir_meta='/disk3/maheen_data/headC_160_withFlow_justHuman_retrain/test_train_data';
+
+    dir_out = os.path.join(dir_meta,'results_200000_compiled');
+    util.mkdir(dir_out);
+    test_data_txt_dir = os.path.join(dir_meta,'test_files_split');
+    test_data_res_dir = os.path.join(dir_meta,'results_200000');
+
+
+    for batch_no in range(6):
+        params_dict['dir_npy'] = os.path.join(test_data_res_dir,str(batch_no));
+        params_dict['dir_out'] = dir_out
+        params_dict['test_data_file'] = os.path.join(test_data_txt_dir,str(batch_no)+'.txt')
+        params_dict['batchsize'] = 32;
+        params_dict['num_threads'] = multiprocessing.cpu_count();
+
+        
+        params=createParams('saveWithFloResultsInCompatibleFormat');
+        params=params(**params_dict);
+        script_saveWithFloResultsInCompatibleFormat(params);
+        pickle.dump(params._asdict(),open(os.path.join(params.dir_out,'params.p'),'wb'));
+
+
+    return
+
+    dir_test='/disk3/maheen_data/headC_160_withFlow_justHuman_retrain'
+    flo_dir_meta=os.path.join(dir_test,'im_with_padding','flo');
+    scale_idx_range=range(7);
+    
+    # out_dir_test_files=os.path.join(dir_test,'test_files_split');
+    # util.mkdir(out_dir_test_files);
+    im_folder_meta=os.path.join(dir_test,'im_with_padding');
+    im_folder_full_im=os.path.join(dir_test,'im_rem')
+
+    out_dir_im_lists = os.path.join(im_folder_meta,'flo_im_path_by_im');
+    print out_dir_im_lists
+    util.mkdir(out_dir_im_lists);
+
+    batch_size=50;
+
+    im_path_files=util.getFilesInFolder(out_dir_im_lists,'.npy');
+    batch_idx = util.getIdxRange(len(im_path_files),batch_size);
+
+    out_dir='/disk3/maheen_data/headC_160_withFlow_human_xavier_unit_floStumpPretrained_fullTraining';
+    util.mkdir(out_dir);
+
+    out_dir_test_files=os.path.join(out_dir,'test_files_split');
+    util.mkdir(out_dir_test_files);
+    
+    out_dir_res=os.path.join(out_dir,'results_res_30000');
+    util.mkdir(out_dir_res);
+
+    for idx_batch_idx,start_idx in enumerate(batch_idx[:-1]):
+        end_idx=batch_idx[idx_batch_idx+1];
+        im_paths=im_path_files[start_idx:end_idx];
+        out_file_test=os.path.join(out_dir_test_files,str(idx_batch_idx)+'.txt');
+        # print out_file_test;
+        # print len(im_paths);
+        writeTestFloFile(im_paths,im_folder_meta,out_file_test);
+
+        print 'th /home/maheenrashid/Downloads/deep_proposals/torch_new/test_command_line_flow.th -model /disk3/maheen_data/headC_160/withFlow_human_xavier_unit_floStumpPretrained_fullTraining_res/intermediate/model_all_30000.dat -testFile '+ out_file_test+' -outDir '+out_dir_res+'/'+str(idx_batch_idx);
+
+        # print 'th /home/maheenrashid/Downloads/deep_proposals/torch_new/test_command_line_flow.th -model /disk3/maheen_data/headC_160/withFlow_gaussian_human_softmax/final/model_all_final.dat -testFile '+ out_file_test+' -outDir /disk3/maheen_data/headC_160_withFlow_justHuman_retrain/test_train_data/results_100000/'+str(idx_batch_idx);
+        # print /disk3/maheen_data/headC_160_withFlow_justHuman_retrain/test_files_split/0.txt
+
+
+
+    return
+    # dir_test='/disk3/maheen_data/headC_160_withFlow_justHuman_retrain/test_train_data'
+    # flo_dir_meta=os.path.join(dir_test,'im_with_padding','flo');
+    # scale_idx_range=range(7);
+    
+    # im_folder_meta=os.path.join(dir_test,'im_with_padding');
+    # im_folder_full_im='/disk3/maheen_data/headC_160_noFlow_justHuman_retrain/train_data_test/im'
     
 
+    # out_dir_im_lists=os.path.join(im_folder_meta,'flo_im_path_by_im');
+    # print out_dir_im_lists
+    # util.mkdir(out_dir_im_lists);
+
+    # num_threads=multiprocessing.cpu_count();
+
+    # # get all the folders with flo_im
+    # folders_dict={};
+    # for scale_curr in scale_idx_range:
+    #     dir_curr=os.path.join(flo_dir_meta,str(scale_curr));
+
+    #     folders_dict[dir_curr]=[];
+
+    #     inner_folder_num=0;
+    #     while True:
+    #         dir_check=os.path.join(dir_curr,str(inner_folder_num));
+    #         if os.path.exists(dir_check):
+    #             folders_dict[dir_curr].append(dir_check);
+    #         else:
+    #             break;
+    #         inner_folder_num+=1;
+
+    # folder_count=0;
+    # for folder in folders_dict.keys():
+    #     print folder,len(folders_dict[folder]);
+    #     folder_count+=len(folders_dict[folder]);
+
+    # all_folders=[folder_curr for folder_list in folders_dict.values() for folder_curr in folder_list];
+
+    # # print len(all_folders);
+    # # print all_folders[0];
+    # # print folder_count;
+
+    # # out_file_commands=os.path.join(flo_dir_meta,'commands_to_get_list.sh');
+    # # commands_all=[];
+    # # for folder_curr in all_folders:
+    # #     command_curr = 'find '+folder_curr+'/flo_im/*.png >> '+folder_curr+'.txt';
+    # #     print command_curr;
+    # #     commands_all.append(command_curr);
+
+    # # util.writeFile(out_file_commands,commands_all);
+    # # print out_file_commands;
+
+    # # return
+
+    # im_names = util.getFileNames(util.getFilesInFolder(os.path.join(im_folder_full_im,str(scale_idx_range[0])),ext='.jpg'),ext=False);
+
+    # args=[];
+    # for im_name in im_names:
+    #     out_file=os.path.join(out_dir_im_lists,im_name+'.npy')
+    #     if not os.path.exists(out_file):
+    #         arg_curr=(im_name,out_file,all_folders);
+    #         args.append(arg_curr);
+
+    # p = multiprocessing.Pool(num_threads);
+    # p.map(saveFloFileList,args);
+
+
+
     # return
-    # # params_dict={};
-    # # params_dict['out_dir_overlap'] = '/disk3/maheen_data/headC_160_noFlow_justHuman_retrain/mat_overlaps_1000'
-    # # params_dict['out_file'] = os.path.join('/disk3/maheen_data/headC_160_noFlow_justHuman_retrain','meta_info_multi.p');
-    # # params_dict['thresh_overlap'] = np.arange(0.5,1,0.05);
-    # # params=createParams('saveMetaMatOverlapInfo');
-    # # params=params(**params_dict);
-    # # script_saveMetaMatOverlapInfoMultiThresh(params)
-    # # pickle.dump(params._asdict(),open(os.path.join(params.out_dir_overlap,'params_saveMetaInfo_multi.p'),'wb'));
 
-    # meta_file=os.path.join('/disk3/maheen_data/headC_160_noFlow_justHuman_retrain','meta_info_multi.p');
-    # out_file_plot=meta_file[:meta_file.rindex('.')]+'.png';
-    # script_saveRecallCurve(meta_file,out_file_plot)
+    params_dict = {};
+    params_dict['out_dir_test'] = '/disk3/maheen_data/headC_160_withFlow_justHuman_retrain/test_train_data';
+    params_dict['out_dir_test_old'] = '/disk3/maheen_data/headC_160_noFlow_justHuman_retrain/train_data_test';
+    params_dict['out_dir_im'] = os.path.join(params_dict['out_dir_test_old'],'im');
+    params_dict['out_dir_bbox'] = os.path.join(params_dict['out_dir_test_old'],'results');
+    params_dict['scale_idx'] = range(7);
+    params_dict['out_dir_im_withPadding'] = os.path.join(params_dict['out_dir_test'],'im_with_padding');
+    params_dict['out_file_jTest_text'] = os.path.join(params_dict['out_dir_im_withPadding'],'test.txt');
+    params_dict['out_dir_flo'] = os.path.join(params_dict['out_dir_im_withPadding'],'flo');
+    params_dict['out_dir_flo_im'] = os.path.join(params_dict['out_dir_im_withPadding'],'flo_im');
+    params_dict['caffe_model_file'] = '/home/maheenrashid/Downloads/debugging_jacob/optical_flow_prediction_test/examples/opticalflow/final.caffemodel';
+    params_dict['clusters_file'] = '/home/maheenrashid/Downloads/debugging_jacob/optical_flow_prediction_test/examples/opticalflow/clusters.mat';
+    params_dict['gpu'] = 0;
+    params_dict['out_file_test'] = os.path.join(params_dict['out_dir_test'],'test_data_flo.txt');
+    params_dict['stride'] = 16;
+    params_dict['w'] = 160;
+    params_dict['mode'] = 'edge';
+    params_dict['num_threads'] = multiprocessing.cpu_count();
+    params_dict['continue_count'] = 2;
 
+    params=createParams('getDataForTestingWithFlo');
+    params=params(**params_dict);
 
-    # return
-    # params_dict={};
-    # params_dict['dir_gt_boxes'] = '/disk3/maheen_data/val_anno_human_only';    
-    # params_dict['dir_canon_im'] = os.path.join('/disk3/maheen_data/headC_160_noFlow_justHuman_retrain','im','4');
-    # params_dict['dir_meta_test'] = os.path.join('/disk3/maheen_data/headC_160_noFlow_justHuman_retrain','results')
-    # params_dict['dir_result_check'] = os.path.join(params_dict['dir_meta_test'],'4');
-    # params_dict['power_scale_range'] = (-2,1);
-    # params_dict['power_step_size'] = 0.5
-    # params_dict['top'] = 1000;
-    # params_dict['stride'] = 16;
-    # params_dict['w'] = 160;
-    # params_dict['out_dir_overlap'] = os.path.join('/disk3/maheen_data/headC_160_noFlow_justHuman_retrain','mat_overlaps_'+str(params_dict['top']));
-    # params_dict['overwrite'] = False;
-    # params=createParams('saveMatOverlapsVal');
-    # params=params(**params_dict);
-    # script_saveMatOverlapsVal(params);
-    # pickle.dump(params._asdict(),open(os.path.join(params.out_dir_overlap,'params.p'),'wb'));
+    script_getDataForTestingWithFlo(params);
+    pickle.dump(params._asdict(),open(os.path.join(params.out_dir_test,'params_getFloData.p'),'wb'));
 
-    # return
+    return
+
+    out_dir_test='/disk3/maheen_data/headC_160_noFlow_justHuman_retrain/train_data_test';
+    util.mkdir(out_dir_test);
 
     params_dict={};
-
-    params_dict['file_anno'] = '/disk2/ms_coco/annotations/instances_val2014.json';
+    params_dict['file_anno'] = '/disk2/ms_coco/annotations/instances_train2014.json';
     params_dict['category_id'] = 1;
-    params_dict['input_im_pre'] = '/disk2/ms_coco/val2014/COCO_val2014_';
+    params_dict['input_im_pre'] = '/disk2/ms_coco/train2014/COCO_train2014_';
     params_dict['im_post'] = '.jpg';
     params_dict['mask_post'] = None;
     params_dict['num_to_pick'] = 300;
     params_dict['append_idx'] = False;
-    params_dict['out_dir_test'] = '/disk3/maheen_data/headC_160_noFlow_justHuman';
+    params_dict['out_dir_test'] = out_dir_test;
     params_dict['out_dir_im'] = os.path.join(params_dict['out_dir_test'],'im');
     params_dict['out_dir_bbox'] = os.path.join(params_dict['out_dir_test'],'results');
     params_dict['scale_idx_range'] = range(7);
@@ -897,7 +1265,7 @@ def main():
     params_dict['range_big'] = range(5,7);
     params_dict['path_to_test_file_small'] = '/home/maheenrashid/Downloads/deep_proposals/torch_new/test_command_line.th';
     params_dict['path_to_test_file_big'] = '/home/maheenrashid/Downloads/deep_proposals/torch_new/test_command_line_bigIm.th';
-    params_dict['model'] = '/disk3/maheen_data/headC_160/noFlow_gaussian_human/final/model_all_final.dat';
+    params_dict['model'] = '/disk3/maheen_data/headC_160/noFlow_gaussian_human_softmax/final/model_all_final.dat';
     params_dict['limit'] = -1;
 
     params=createParams('getResultsForCatSpecific');
@@ -905,6 +1273,52 @@ def main():
     script_getResultsForCatSpecific(params);
     pickle.dump(params._asdict(),open(os.path.join(params.out_dir_test,'params.p'),'wb'))
     
+# /disk3/maheen_data/headC_160_noFlow_justHuman
+    return
+    # get some training data names (300);
+    pos_data='/disk3/maheen_data/headC_160/noFlow_gaussian_human/pos_flos/positives_onlyHuman_withFlow.txt';
+    pos_data=util.readLinesFromFile(pos_data);
+    im_data=[pos_data_curr[:pos_data_curr.index(' ')] for pos_data_curr in pos_data];
+    file_names=util.getFileNames(im_data,ext=False);
+    file_names=[im_curr[:im_curr.rindex('_')] for im_curr in file_names];
+    file_names=list(np.unique(file_names));
+
+    # get their results on no flow
+    
+    # do the same for their results with flow
+
+
+
+
+
+    return
+    params_dict = {};
+    params_dict['out_dir_test'] = '/disk3/maheen_data/headC_160_withFlow_justHuman';
+    params_dict['out_dir_test_old'] = '/disk3/maheen_data/headC_160_noFlow_justHuman';
+    params_dict['out_dir_im'] = os.path.join(params_dict['out_dir_test_old'],'im');
+    params_dict['out_dir_bbox'] = os.path.join(params_dict['out_dir_test_old'],'results');
+    params_dict['scale_idx'] = range(7);
+    params_dict['out_dir_im_withPadding'] = os.path.join(params_dict['out_dir_test'],'im_with_padding');
+    params_dict['out_file_jTest_text'] = os.path.join(params_dict['out_dir_im_withPadding'],'test.txt');
+    params_dict['out_dir_flo'] = os.path.join(params_dict['out_dir_im_withPadding'],'flo');
+    params_dict['out_dir_flo_im'] = os.path.join(params_dict['out_dir_im_withPadding'],'flo_im');
+    params_dict['caffe_model_file'] = '/home/maheenrashid/Downloads/debugging_jacob/optical_flow_prediction_test/examples/opticalflow/final.caffemodel';
+    params_dict['clusters_file'] = '/home/maheenrashid/Downloads/debugging_jacob/optical_flow_prediction_test/examples/opticalflow/clusters.mat';
+    params_dict['gpu'] = 0;
+    params_dict['out_file_test'] = os.path.join(params_dict['out_dir_test'],'test_data_flo.txt');
+    params_dict['stride'] = 16;
+    params_dict['w'] = 160;
+    params_dict['mode'] = 'edge';
+    params_dict['num_threads'] = multiprocessing.cpu_count();
+    params_dict['continue_count'] = 4;
+
+    params=createParams('getDataForTestingWithFlo');
+    params=params(**params_dict);
+
+    script_getDataForTestingWithFlo(params);
+    pickle.dump(params._asdict(),open(os.path.join(params.out_dir_test,'params_getFloData.p'),'wb'));
+
+
 
 
 if __name__=='__main__':

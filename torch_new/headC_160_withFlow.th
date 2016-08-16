@@ -34,7 +34,7 @@ function makeXavierGaussian(model)
             end
 
             var = 2/(var[1] + var[2])
-            m.weight=torch.randn(m.weight:size()):mul(var);
+            m.weight=torch.randn(m.weight:size()):mul(torch.sqrt(var));
             m.bias=torch.zeros(m.bias:size());
             
         end
@@ -73,9 +73,11 @@ function makeMyNetwork(torch_file)
     --     end
     -- end
     -- make the combination conv unit weights
+    seq_trunk = makeXavierGaussian(seq_trunk)
+
     -- seq_trunk:get(2).weight=torch.ones(seq_trunk:get(2).weight:size());
     -- seq_trunk:get(2).bias=torch.zeros(seq_trunk:get(2).bias:size());
-    seq_trunk = makeXavierGaussian(seq_trunk)
+    
 	seq:add(seq_trunk);
 
 
@@ -172,14 +174,26 @@ function getLossScoreD(x_score,gt_label)
 end
 
 local torch_file='/disk2/januaryExperiments/vgg_16/vgg16_onlyConv.dat';
-local deep_prop_file='/disk2/aprilExperiments/headC_160/withFlow_gaussian_softmax.dat'
-local out_dir='/disk3/maheen_data/headC_160/withFlow_gaussian_human_softmax';
+local deep_prop_file='/disk2/aprilExperiments/headC_160/withFlow_gaussian_xavier_fixed.dat'
+-- local deep_prop_file='/disk3/maheen_data/headC_160/withFlow_gaussian_human_softmax/final/model_all_final.dat'
+local out_dir='/disk3/maheen_data/headC_160/withFlow_testSubset_32';
 
 net=makeMyNetwork(torch_file)
 torch.save(deep_prop_file,net);
 
-local neg_file='/disk3/maheen_data/headC_160/neg_flos/negatives_onlyHuman_withFlow.txt'
-local pos_file='/disk3/maheen_data/headC_160/noFlow_gaussian_human/pos_flos/positives_onlyHuman_withFlow.txt'
+-- local neg_file='/disk3/maheen_data/headC_160/neg_flos/negatives_onlyHuman_withFlow.txt'
+-- local pos_file='/disk3/maheen_data/headC_160/noFlow_gaussian_human/pos_flos/positives_onlyHuman_withFlow.txt'
+
+-- local val_neg_file = '/disk3/maheen_data/headC_160/neg_flos/negatives_onlyHuman_withFlow.txt'
+-- local val_pos_file = '/disk3/maheen_data/headC_160/noFlow_gaussian_human/pos_flos/positives_onlyHuman_withFlow.txt'
+
+
+local neg_file='/disk3/maheen_data/headC_160/neg_flos/negatives_onlyHuman_withFlow_oneHundreth.txt'
+local pos_file='/disk3/maheen_data/headC_160/noFlow_gaussian_human/pos_flos/positives_onlyHuman_withFlow_oneHundreth.txt'
+
+local val_neg_file = '/disk3/maheen_data/headC_160/neg_flos/negatives_onlyHuman_withFlow_oneHundreth.txt'
+local val_pos_file = '/disk3/maheen_data/headC_160/noFlow_gaussian_human/pos_flos/positives_onlyHuman_withFlow_oneHundreth.txt'
+
 
 paths.mkdir(out_dir);
 local out_dir_intermediate=paths.concat(out_dir,'intermediate');
@@ -220,11 +234,12 @@ local out_file_loss_plot_final_seg=out_dir_final..'/'..'loss_iter_seg.png';
 local opt = {}         
 opt.optimization = 'sgd'
 opt.batch_size=32;
-opt.learningRate=0.001;
+opt.testAfter=0;
+opt.learningRate=0.00001;
 opt.momentum=0.9
 opt.weightDecay=0.00005;
 opt.iterations=100000;
-opt.saveAfter=5000;
+opt.saveAfter=100;
 opt.plotAfter=50;
 opt.dispAfter=4;
 
@@ -263,6 +278,8 @@ print (optimState)
 print ('pos_file',pos_file)
 print ('neg_file',neg_file)
 td=data({file_path_positive=pos_file,file_path_negative=neg_file});
+vd=data({file_path_positive=val_pos_file,file_path_negative=val_neg_file});
+
 
 local counter = 0
 
@@ -313,6 +330,8 @@ end
 
 local losses_seg = {};
 local losses_score = {};
+local val_losses_seg = {};
+local val_losses_score = {};
 
 for i=1,opt.iterations do
     
@@ -330,8 +349,41 @@ for i=1,opt.iterations do
             losses_seg[#losses_seg],losses_score[#losses_score]))
     end
 
+    
+
+    if i%opt.testAfter==0 and opt.testAfter>0 then 
+
+        net:evaluate();
+        
+        vd:getTrainingDataToyScore();
+        local batch_inputs = vd.training_set_score.data:cuda();
+        local batch_inputs_flow = vd.training_set_score.flo:cuda();
+        local batch_targets = vd.training_set_score.label:cuda();
+
+        local out_results=net:forward{batch_inputs,batch_inputs_flow}
+        local score_loss_val = getLossScore(out_results[1], batch_targets)
+
+        vd:getTrainingDataToy();
+        
+        batch_inputs = vd.training_set_seg.data:cuda();
+        batch_inputs_flow = vd.training_set_seg.flo:cuda();
+        batch_targets = vd.training_set_seg.label:cuda();
+        
+        out_results=net:forward{batch_inputs,batch_inputs_flow}
+        local seg_loss_val = getLossSeg(out_results[2],batch_targets);
+        
+        val_losses_seg[#val_losses_seg+1]=seg_loss_val;
+        val_losses_score[#val_losses_score+1]=score_loss_val;
+
+        net:training();
+
+        print(string.format("minibatches processed: %6s, val loss seg = %6.6f, val loss score = %6.6f", i, 
+            val_losses_seg[#val_losses_seg],val_losses_score[#val_losses_score]))
+    end
+
     -- check if model needs to be saved. save it.
     -- also save losses
+
     if i%opt.saveAfter==0 then
         local out_file_intermediate=out_file_intermediate_pre..i..'.dat';
         torch.save(out_file_intermediate,net);
@@ -339,8 +391,16 @@ for i=1,opt.iterations do
         npy4th.savenpy(out_file_loss_intermediate, torch.Tensor(losses_score))
         local out_file_loss_intermediate=out_file_loss_intermediate_pre..i..'_seg.npy';
         npy4th.savenpy(out_file_loss_intermediate, torch.Tensor(losses_seg))
+
+        if opt.testAfter>0 then 
+            local out_file_loss_intermediate=out_file_loss_intermediate_pre..i..'_val_score.npy';
+            npy4th.savenpy(out_file_loss_intermediate, torch.Tensor(val_losses_score))
+            local out_file_loss_intermediate=out_file_loss_intermediate_pre..i..'_val_seg.npy';
+            npy4th.savenpy(out_file_loss_intermediate, torch.Tensor(val_losses_seg))
+        end
+
     end
-    
+
     -- check if losses need to be plotted. plot them.
     -- if i%opt.plotAfter==0 then
         

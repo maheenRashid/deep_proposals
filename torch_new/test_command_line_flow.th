@@ -162,11 +162,17 @@ function main(params)
 	
 	print ('loading model')
 	local net=torch.load(params.model);
+	net:get(2):get(2):add(nn.Tanh());
+	
+	
 	if params.gpu~=-1 then
 		net=net:cuda();
 	else
 		net=net:double();
 	end
+
+	print (net);
+
 	net:evaluate();
 
 	print ('reading test image file');

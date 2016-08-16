@@ -1,0 +1,373 @@
+require 'nn';
+require 'loadcaffe';
+require 'cutorch';
+require 'cunn';
+require 'optim'
+require 'hdf5'
+require 'image'
+require 'gnuplot'
+npy4th = require 'npy4th'
+require 'data_withFlow';
+require 'paths';
+
+
+function makeXavierGaussian(model)
+    for idx=1,#model do
+        
+        local m = model.modules[idx]
+        if m.weight then
+            local var;
+            if m.__typename == 'nn.SpatialConvolution' then
+                var = {m.nInputPlane*m.kH*m.kW, m.nOutputPlane*m.kH*m.kW}
+            elseif m.__typename == 'nn.SpatialConvolutionMM' then
+                var = {m.nInputPlane*m.kH*m.kW, m.nOutputPlane*m.kH*m.kW}
+            elseif m.__typename == 'nn.LateralConvolution' then
+                var = {m.nInputPlane*1*1, m.nOutputPlane*1*1}
+            elseif m.__typename == 'nn.VerticalConvolution' then
+                var = {1*m.kH*m.kW, 1*m.kH*m.kW}
+            elseif m.__typename == 'nn.HorizontalConvolution' then
+                var = {1*m.kH*m.kW, 1*m.kH*m.kW}
+            elseif m.__typename == 'nn.Linear' then
+                var = {m.weight:size(2), m.weight:size(1)}
+            elseif m.__typename == 'nn.TemporalConvolution' then
+                var = {m.weight:size(2), m.weight:size(1)}
+            end
+
+            var = 2/(var[1] + var[2])
+            m.weight=torch.randn(m.weight:size()):mul(var);
+            m.bias=torch.zeros(m.bias:size());
+            
+        end
+    end
+
+    return model
+end
+
+
+function makeMyNetwork(torch_file)
+
+
+	local vgg=torch.load(torch_file);
+    vgg=vgg:double();
+
+    local para=nn.ParallelTable();
+    para:add(vgg);
+    para:add(vgg:clone());
+    
+    local seq=nn.Sequential();
+    seq:add(para);
+
+    local seq_trunk = nn.Sequential();
+    seq_trunk:add(nn.JoinTable(2));
+    seq_trunk:add(nn.SpatialConvolution(1024,512,1,1));
+    seq_trunk:add(nn.SpatialConvolution(512,128,1,1));
+    seq_trunk:add(nn.View(128*10*10));
+    seq_trunk:add(nn.Linear(128*10*10,512));
+
+    -- for idx=1,#seq_trunk do
+    --     if seq_trunk:get(idx).weight then
+    --         seq_trunk:get(idx).weight=torch.randn(seq_trunk:get(idx).weight:size()):div(100);
+    --     end
+    --     if seq_trunk:get(idx).bias then
+    --         seq_trunk:get(idx).bias=torch.zeros(seq_trunk:get(idx).bias:size());
+    --     end
+    -- end
+    -- make the combination conv unit weights
+    seq_trunk = makeXavierGaussian(seq_trunk)
+
+    seq_trunk:get(2).weight=torch.ones(seq_trunk:get(2).weight:size());
+    seq_trunk:get(2).bias=torch.zeros(seq_trunk:get(2).bias:size());
+    
+	seq:add(seq_trunk);
+
+
+
+	local score_branch=nn.Sequential();
+	score_branch:add(nn.Linear(512,1024));
+	score_branch:add(nn.ReLU());
+	score_branch:add(nn.Dropout(0.5));
+	score_branch:add(nn.Linear(1024,1));
+	
+    -- for idx=1,#score_branch do
+    --     if score_branch:get(idx).weight then
+    --         score_branch:get(idx).weight=torch.randn(score_branch:get(idx).weight:size()):div(100);
+    --     end
+    --     if score_branch:get(idx).bias then
+    --         score_branch:get(idx).bias=torch.zeros(score_branch:get(idx).bias:size());
+    --     end
+    -- end
+    score_branch = makeXavierGaussian(score_branch)
+
+	local seg_branch=nn.Sequential();
+	seg_branch:add(nn.Linear(512,40*40));
+	seg_branch:add(nn.View(1,40,40));
+	seg_branch:add(nn.SpatialUpSamplingNearest(4));
+	
+    -- for idx=1,#seg_branch do
+    --     if seg_branch:get(idx).weight then
+    --         seg_branch:get(idx).weight=torch.randn(seg_branch:get(idx).weight:size()):div(100);
+    --     end
+    --     if seg_branch:get(idx).bias then
+    --         seg_branch:get(idx).bias=torch.zeros(seg_branch:get(idx).bias:size());
+    --     end
+    -- end
+    seg_branch = makeXavierGaussian(seg_branch)
+
+	local split_net=nn.ConcatTable();
+	split_net:add(score_branch);
+	split_net:add(seg_branch);
+
+    local total_net = nn.Sequential();
+    total_net:add(seq);
+    total_net:add(split_net);
+
+	return total_net
+end
+
+function getLossSeg(x_seg,gt_mask)
+	local loss=torch.mul(gt_mask,-1)
+	-- print(loss:size())
+	-- print(gt_mask:size())
+	loss:cmul(x_seg)
+	loss:exp();
+	loss:add(1);
+	loss:log();
+    loss:div(params.segConstant*params.segConstant);
+	loss=loss:sum()
+	return loss;
+end
+
+function getLossScore(x_score,gt_label)
+    local loss=torch.mul(gt_label,-1)
+    loss:cmul(x_score)
+    loss:exp();
+    loss:add(1);
+    loss:log();
+    loss:div(32);
+    loss=loss:sum()
+    return loss;
+end
+
+function getLossSegD(x_seg,gt_mask)
+	local dloss=torch.mul(gt_mask,-1);
+	dloss:cmul(x_seg);
+	dloss:exp();
+	local deno=torch.add(dloss,1);
+	dloss:cmul(gt_mask);
+	dloss:mul(-1);
+	dloss:cdiv(deno);
+	dloss:div(params.segConstant*params.segConstant);
+	return dloss;
+end
+
+function getLossScoreD(x_score,gt_label)
+	-- print (x_score)
+	local dloss=torch.mul(gt_label,-1);
+	dloss:cmul(x_score);
+    dloss:exp();
+    local deno=torch.add(dloss,1);
+    dloss:cmul(gt_label);
+    dloss:mul(-1);
+    dloss:cdiv(deno);
+    dloss:div(32);
+    return dloss;
+end
+
+
+
+local fevalScore = function(x)
+    if x ~= parameters then
+    parameters:copy(x)
+    end
+    
+    td:getTrainingDataToyScore();    
+    local batch_inputs = td.training_set_score.data:cuda();
+    local batch_inputs_flow = td.training_set_score.flo:cuda();
+    local batch_targets = td.training_set_score.label:cuda();
+    
+    gradParameters:zero()
+    
+    local batch_outputs_mid = net:get(1):forward{batch_inputs,batch_inputs_flow}
+    local batch_outputs = net:get(2):get(1):forward(batch_outputs_mid)
+
+    local batch_loss = getLossScore(batch_outputs, batch_targets)
+    local dloss_doutput = getLossScoreD(batch_outputs, batch_targets)
+    local gradInputs=net:get(2):get(1):backward(batch_outputs_mid, dloss_doutput):clone()
+
+   
+    net:get(1):backward(batch_inputs, gradInputs)
+   
+
+    -- print ('score',dloss_doutput:size());
+    -- print (torch.mean(dloss_doutput:view(dloss_doutput:nElement())));
+    -- local out_file_curr=paths.concat(out_dir_score,'gradients_'..i_for_save..'.npy');
+    -- print (out_file_curr);
+    -- print (gradInputs:size(),type(gradInputs))
+    -- local gradInputs_cpu=gradInputs:double();
+    -- print (type(gradInputs_cpu))
+    -- print ('next_line');
+    -- -- local gradInputs_cpu=gradInputs:double();
+    -- npy4th.savenpy(out_file_curr,gradInputs_cpu);
+
+    return {batch_loss,dloss_doutput}, gradParameters
+end
+
+
+local fevalSeg = function(x)
+    if x ~= parameters then
+    parameters:copy(x)
+    end
+    
+    td:getTrainingDataToy();    
+    local batch_inputs = td.training_set_seg.data:cuda();
+    local batch_inputs_flow = td.training_set_seg.flo:cuda();
+    local batch_targets = td.training_set_seg.label:cuda();
+
+    gradParameters:zero()
+    local batch_outputs_mid = net:get(1):forward{batch_inputs,batch_inputs_flow}
+    local batch_outputs = net:get(2):get(2):forward(batch_outputs_mid)
+    local batch_loss = getLossSeg(batch_outputs, batch_targets)
+    local dloss_doutput = getLossSegD(batch_outputs, batch_targets)
+    
+    local gradInputs=net:get(2):get(2):backward(batch_outputs_mid, dloss_doutput):clone()
+
+    net:get(1):backward(batch_inputs, gradInputs)
+   
+    -- print ('seg',dloss_doutput:size());
+    -- print (torch.mean(dloss_doutput:view(dloss_doutput:nElement())));
+    -- local out_file_curr=paths.concat(out_dir_seg,'gradients_'..i_for_save..'.npy');
+    
+    -- print (out_file_curr);
+    -- print (gradInputs:size(),torch.type(gradInputs))
+    -- local gradInputs_cpu=gradInputs:double();
+    -- print (torch.type(gradInputs_cpu))
+    -- print ('next_line');
+    -- -- local gradInputs_cpu=gradInputs:double();
+    -- npy4th.savenpy(out_file_curr,gradInputs_cpu);
+
+    return {batch_loss,dloss_doutput}, gradParameters
+end
+
+function main(params)
+    -- local torch_file='/disk2/januaryExperiments/vgg_16/vgg16_onlyConv.dat';
+    -- local deep_prop_file='/disk2/aprilExperiments/headC_160/withFlow_xavier_unit.dat'
+    -- local deep_prop_file='/disk3/maheen_data/headC_160/withFlow_gaussian_human_softmax/final/model_all_final.dat'
+    local deep_prop_file=params.model
+    -- '/disk3/maheen_data/headC_160/withFlow_gaussian_human_softmax/intermediate/model_all_5000.dat';
+
+    local out_dir=params.outDir
+    -- '/disk3/maheen_data/headC_160/withFlow_human_debug';
+
+    local neg_file='/disk3/maheen_data/headC_160/neg_flos/negatives_onlyHuman_withFlow.txt'
+    local pos_file='/disk3/maheen_data/headC_160/noFlow_gaussian_human/pos_flos/positives_onlyHuman_withFlow.txt'
+
+    paths.mkdir(out_dir);
+
+    print ('pos_file',pos_file)
+    print ('neg_file',neg_file)
+
+
+    local opt = {}         
+    opt.optimization = 'sgd'
+    opt.batch_size=32;
+    opt.learningRate=0.0001;
+    opt.momentum=0.9
+    opt.weightDecay=0.00005;
+    opt.iterations=params.iterations;
+    opt.saveAfter=5000;
+    opt.plotAfter=50;
+    opt.dispAfter=2;
+
+    cutorch.setDevice(params.gpu);
+
+    local optimState       
+    local optimMethod      
+
+    optimState = {
+        learningRate = opt.learningRate,
+        weightDecay = opt.weightDecay,
+        momentum = opt.momentum,
+    }
+
+    optimMethod = optim.sgd
+
+
+    print ('loading network');
+
+    net = torch.load(deep_prop_file);
+
+    print ('done loading network');
+
+    print ('making cuda');
+    net = net:cuda();
+    print ('done');
+
+    print ('loading params');
+    parameters, gradParameters = net:getParameters()
+    print ('loading done');
+    print (optimState)
+    print ('pos_file',pos_file)
+    print ('neg_file',neg_file)
+    print ('deep_prop_file', deep_prop_file);
+    td=data({file_path_positive=pos_file,file_path_negative=neg_file});
+
+    local counter = 0
+
+    local losses_seg = {};
+    local losses_score = {};
+    local dlosses_seg={};
+    local dlosses_score={};
+
+
+    for i=1,opt.iterations do
+        print (i,opt.iterations);
+        if i%2==0 then
+            local _, minibatch_loss = optimMethod(fevalScore,parameters, optimState)
+            losses_score[#losses_score + 1] = minibatch_loss[1][1] -- append the new loss        
+            dlosses_score[#dlosses_score+1]=minibatch_loss[1][2]
+        else
+            local _, minibatch_loss = optimMethod(fevalSeg,parameters, optimState)
+            losses_seg[#losses_seg + 1] = minibatch_loss[1][1] -- append the new loss
+            dlosses_seg[#dlosses_seg+1]= minibatch_loss[1][2];
+        end
+
+        if i%opt.dispAfter==0 then
+            print(string.format("minibatches processed: %6s, loss seg = %6.6f, loss score = %6.6f, dloss seg = %6.6f, dloss score = %6.6f", i, 
+                losses_seg[#losses_seg],losses_score[#losses_score],torch.mean(dlosses_seg[#dlosses_seg]),torch.mean(dlosses_score[#dlosses_score])))
+        end
+
+        local weights,grads=net:parameters();
+        
+        local out_file_curr=paths.concat(out_dir,'grads_weights_dloss_'..i..'.dat');
+        print (out_file_curr);
+        local data={grads=grads,
+                    weights=weights,
+                    dloss_seg=dlosses_seg[#dlosses_seg],
+                    dloss_score=dlosses_score[#dlosses_score],
+                    loss_seg=losses_seg[#losses_seg],
+                    loss_score=losses_score[#losses_score]};
+
+        torch.save(out_file_curr,data);
+
+
+
+    end
+
+    
+end
+
+cmd = torch.CmdLine()
+cmd:text()
+cmd:text('Debug Train Network With Flow')
+cmd:text()
+cmd:text('Options')
+cmd:option('-model','','model to test')
+cmd:option('-outDir','','directory to write output');
+cmd:option('-iterations',5,'num of iterations to save');
+cmd:option('-gpu',1,'gpu number');
+cmd:option('-segConstant',40,'1/x^2 constant for seg loss');
+cmd:text()
+
+-- parse input params
+params = cmd:parse(arg)
+main(params);
